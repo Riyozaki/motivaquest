@@ -1,0 +1,5 @@
+{
+  "name": "MotivaQuest",
+  "description": "A gamified productivity application using React and Tailwind CSS. Track quests, earn rewards, and level up your life.",
+  "requestFramePermissions": []
+}
