@@ -3,6 +3,7 @@ import { useSelector, useDispatch } from 'react-redux';
 import { RootState } from '../store';
 import { purchaseItem } from '../store/userSlice';
 import { Coins, ShoppingBag, Lock, Check, Zap, Target, Sparkles, Shield, Coffee, Gamepad2, Pizza } from 'lucide-react';
+import { motion } from 'framer-motion';
 
 const Rewards: React.FC = () => {
   const dispatch = useDispatch();
@@ -19,75 +20,84 @@ const Rewards: React.FC = () => {
 
   const getIcon = (iconName: string) => {
     switch (iconName) {
-      case 'Target': return <Target className="h-10 w-10 text-gray-700" />;
-      case 'Sparkles': return <Sparkles className="h-10 w-10 text-purple-600" />;
-      case 'Shield': return <Shield className="h-10 w-10 text-blue-600" />;
-      case 'Coffee': return <Coffee className="h-10 w-10 text-amber-700" />;
-      case 'Gamepad2': return <Gamepad2 className="h-10 w-10 text-indigo-600" />;
-      case 'Pizza': return <Pizza className="h-10 w-10 text-orange-500" />;
-      default: return <ShoppingBag className="h-10 w-10 text-gray-400" />;
+      case 'Target': return <Target className="h-8 w-8 text-emerald-400" />;
+      case 'Sparkles': return <Sparkles className="h-8 w-8 text-purple-400" />;
+      case 'Shield': return <Shield className="h-8 w-8 text-blue-400" />;
+      case 'Coffee': return <Coffee className="h-8 w-8 text-amber-600" />;
+      case 'Gamepad2': return <Gamepad2 className="h-8 w-8 text-indigo-400" />;
+      case 'Pizza': return <Pizza className="h-8 w-8 text-orange-500" />;
+      default: return <ShoppingBag className="h-8 w-8 text-slate-400" />;
     }
   };
 
   return (
     <div className="max-w-6xl mx-auto space-y-8">
       {/* Wallet Header */}
-      <div className="flex flex-col md:flex-row justify-between items-center bg-indigo-900 text-white p-6 rounded-2xl shadow-lg">
+      <motion.div 
+        initial={{ y: -20, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        className="flex flex-col md:flex-row justify-between items-center bg-gradient-to-r from-indigo-900/80 to-slate-900/80 backdrop-blur-xl p-8 rounded-3xl border border-indigo-500/30 shadow-[0_0_30px_rgba(79,70,229,0.2)]"
+      >
         <div>
-          <h2 className="text-3xl font-bold">Магазин Наград</h2>
-          <p className="text-indigo-200 mt-1">Инвестируй в свои достижения</p>
+          <h2 className="text-3xl font-bold text-white rpg-font tracking-wide">Лавка <span className="text-amber-400">Чудес</span></h2>
+          <p className="text-indigo-200 mt-1 font-light">Обменяй золото на легендарные артефакты.</p>
         </div>
-        <div className="mt-4 md:mt-0 bg-white/10 px-6 py-3 rounded-xl flex items-center backdrop-blur-sm border border-white/20">
-          <Coins className="h-6 w-6 text-yellow-400 mr-3" />
+        <div className="mt-4 md:mt-0 bg-slate-950/50 px-6 py-4 rounded-2xl flex items-center border border-amber-500/30 shadow-inner">
+          <div className="bg-amber-500/20 p-2 rounded-lg mr-4">
+            <Coins className="h-6 w-6 text-amber-400" />
+          </div>
           <div>
-            <div className="text-xs text-indigo-200">Твой баланс</div>
-            <div className="text-2xl font-bold text-white">{user.coins} <span className="text-sm font-normal">монет</span></div>
+            <div className="text-xs text-slate-400 font-bold uppercase tracking-wider">Баланс</div>
+            <div className="text-2xl font-black text-amber-400 drop-shadow-sm">{user.coins}</div>
           </div>
         </div>
-      </div>
+      </motion.div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-        {shopItems.map((item) => {
+        {shopItems.map((item, idx) => {
           const isOwned = item.type === 'skin' && user.inventory?.includes(item.id);
           const canAfford = user.coins >= item.cost;
           
           return (
-            <div 
+            <motion.div 
               key={item.id} 
-              className={`relative bg-white rounded-2xl p-6 shadow-sm border border-gray-100 flex flex-col items-center text-center transition-all ${
-                isOwned ? 'opacity-80' : canAfford ? 'hover:shadow-md hover:-translate-y-1' : 'opacity-70'
-              }`}
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ delay: idx * 0.1 }}
+              className={`relative glass-panel rounded-2xl p-6 flex flex-col items-center text-center transition-all duration-300 border-t border-white/5
+                ${isOwned ? 'opacity-60 grayscale-[0.5]' : canAfford ? 'hover:shadow-[0_0_20px_rgba(124,58,237,0.3)] hover:-translate-y-2' : 'opacity-75'}
+              `}
             >
               {item.type === 'skin' && (
-                <div className="absolute top-3 right-3 bg-purple-100 text-purple-600 text-xs font-bold px-2 py-1 rounded-full uppercase tracking-wide">
-                  Скин
+                <div className="absolute top-3 right-3 bg-purple-900/40 text-purple-300 border border-purple-500/30 text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wide">
+                  Облик
                 </div>
               )}
               
-              <div className="my-4 bg-gray-50 p-4 rounded-full">
+              <div className="my-4 bg-slate-900/50 p-5 rounded-full border border-slate-700 shadow-[inset_0_2px_10px_rgba(0,0,0,0.5)]">
                 {getIcon(item.icon)}
               </div>
               
-              <h3 className="text-xl font-bold text-gray-900 mb-1">{item.name}</h3>
-              <p className="text-sm text-gray-500 mb-4 h-10">{item.description}</p>
+              <h3 className="text-lg font-bold text-slate-100 mb-1 font-serif tracking-wide">{item.name}</h3>
+              <p className="text-xs text-slate-400 mb-6 min-h-[40px] leading-relaxed">{item.description}</p>
               
-              <div className="mt-auto pt-4 w-full">
+              <div className="mt-auto w-full">
                 {isOwned ? (
                    <button 
                    disabled
-                   className="w-full py-2 px-4 rounded-lg font-medium flex items-center justify-center space-x-2 bg-green-100 text-green-700 cursor-default"
+                   className="w-full py-2 px-4 rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center space-x-2 bg-emerald-900/20 text-emerald-400 border border-emerald-500/30 cursor-default"
                  >
                    <Check className="h-4 w-4" />
-                   <span>Куплено</span>
+                   <span>Получено</span>
                  </button>
                 ) : (
                   <button 
                     onClick={() => handleBuy(item.id, item.cost)}
                     disabled={!canAfford}
-                    className={`w-full py-2 px-4 rounded-lg font-medium flex items-center justify-center space-x-2 transition-colors ${
+                    className={`w-full py-3 px-4 rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center space-x-2 transition-all ${
                       canAfford 
-                        ? 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-md' 
-                        : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                        ? 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white shadow-lg' 
+                        : 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'
                     }`}
                   >
                     {canAfford ? (
@@ -99,7 +109,7 @@ const Rewards: React.FC = () => {
                   </button>
                 )}
               </div>
-            </div>
+            </motion.div>
           );
         })}
       </div>

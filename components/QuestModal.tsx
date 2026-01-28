@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import Modal from 'react-modal';
-import { Quest, QuestRarity } from '../types';
-import { X, CheckCircle, AlertCircle, Coins, Star, Trophy, Volume2, StopCircle, Clock } from 'lucide-react';
-import { useDispatch } from 'react-redux';
-import { addExperience, completeQuestAction } from '../store/userSlice';
+import { Quest } from '../types';
+import { X, CheckCircle, AlertCircle, Coins, Star, Trophy, Volume2, StopCircle, Play, Clock, Heart, Check, MinusCircle, XCircle } from 'lucide-react';
+import { useDispatch, useSelector } from 'react-redux';
+import { completeQuestAction, startQuestAction } from '../store/userSlice';
 import { markQuestCompleted } from '../store/questsSlice';
 import { toast } from 'react-toastify';
 import { motion, AnimatePresence } from 'framer-motion';
+import { RootState, AppDispatch } from '../store';
 
 Modal.setAppElement('#root');
 
@@ -17,33 +18,58 @@ interface QuestModalProps {
 }
 
 const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose }) => {
-  const dispatch = useDispatch();
+  const dispatch = useDispatch<AppDispatch>();
+  const user = useSelector((state: RootState) => state.user.currentUser);
   
-  const [answers, setAnswers] = useState<{ [key: number]: string }>({});
-  const [feedback, setFeedback] = useState<{ [key: number]: boolean | null }>({});
+  // Stores "yes", "partial", "no" or null for each task
+  const [taskResponses, setTaskResponses] = useState<{ [key: number]: 'yes' | 'partial' | 'no' | null }>({});
   const [completed, setCompleted] = useState(false);
-  const [timeSpent, setTimeSpent] = useState(0);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [showAffirmation, setShowAffirmation] = useState(false); // Step between Task and Reward
+  const [rewardMultiplier, setRewardMultiplier] = useState(1);
+
+  const startTime = quest && user?.activeQuestTimers ? user.activeQuestTimers[quest.id] : null;
+  const isStarted = !!startTime;
+  
+  // Calculate Time
+  const [timeLeft, setTimeLeft] = useState(0);
 
   useEffect(() => {
     if (isOpen && quest) {
-      setAnswers({});
-      setFeedback({});
+      setTaskResponses({});
       setCompleted(false);
-      setTimeSpent(0);
+      setShowAffirmation(false);
+      setRewardMultiplier(1);
     } else {
       window.speechSynthesis.cancel();
       setIsSpeaking(false);
     }
   }, [isOpen, quest]);
 
+  // Timer Logic
   useEffect(() => {
-    let interval: any;
-    if (isOpen && !completed) {
-      interval = setInterval(() => setTimeSpent(prev => prev + 1), 1000);
-    }
-    return () => clearInterval(interval);
-  }, [isOpen, completed]);
+      if (!quest || !isStarted) {
+          setTimeLeft(0);
+          return;
+      }
+
+      const minMs = (quest.minMinutes || 1) * 60 * 1000;
+      const targetTime = startTime + minMs;
+
+      const updateTimer = () => {
+          const now = Date.now();
+          const diff = targetTime - now;
+          if (diff <= 0) {
+              setTimeLeft(0);
+          } else {
+              setTimeLeft(diff);
+          }
+      };
+
+      updateTimer();
+      const interval = setInterval(updateTimer, 1000);
+      return () => clearInterval(interval);
+  }, [quest, isStarted, startTime]);
 
   if (!quest) return null;
 
@@ -61,168 +87,261 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose }) => {
     }
   };
 
-  const checkAnswers = () => {
-    const requiredTime = quest.cooldownSeconds || 5;
-    if (timeSpent < requiredTime) {
-        toast.warning(`Заклинание еще не готово. Подожди ${requiredTime - timeSpent} сек.`);
-        return;
-    }
-
-    let allCorrect = true;
-    const newFeedback: { [key: number]: boolean } = {};
-    let hasEmpty = false;
-
-    quest.tasks.forEach(task => {
-      const userAnswer = (answers[task.id] || "").trim().toLowerCase();
-      if (!userAnswer) hasEmpty = true;
-      const isCorrect = task.correctAnswer === '*' || userAnswer === task.correctAnswer.toLowerCase();
-      newFeedback[task.id] = isCorrect;
-      if (!isCorrect) allCorrect = false;
-    });
-
-    if (hasEmpty) {
-        toast.info("Заполни все руны.");
-        return;
-    }
-
-    setFeedback(newFeedback);
-
-    if (allCorrect) {
-      setCompleted(true);
-      setTimeout(() => {
-        dispatch(addExperience({ xp: quest.xp, coins: quest.coins }) as any);
-        dispatch(markQuestCompleted(quest.id) as any);
-        dispatch(completeQuestAction(quest.id) as any);
-      }, 500);
-    } else {
-        toast.error("Ритуал сорван. Исправь ошибки.");
-    }
+  const handleStart = () => {
+      dispatch(startQuestAction(quest.id));
+      toast.info("Задание началось! Таймер запущен.");
   };
 
-  const progressVal = Math.min(100, (timeSpent / (quest.cooldownSeconds || 5)) * 100);
+  const formatTime = (ms: number) => {
+      const minutes = Math.floor(ms / 60000);
+      const seconds = Math.floor((ms % 60000) / 1000);
+      return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  };
+
+  const handleInitialCheck = () => {
+      if (timeLeft > 0) {
+          toast.warning(`Не так быстро! Подожди ещё ${formatTime(timeLeft)}.`);
+          return;
+      }
+
+      // Check if all tasks have a response
+      const allAnswered = quest.tasks.every(task => taskResponses[task.id]);
+      if (!allAnswered) {
+          toast.info("Отметь выполнение всех пунктов.");
+          return;
+      }
+
+      // Check if any is "no"
+      const hasNo = Object.values(taskResponses).includes('no');
+      if (hasNo) {
+          toast.error("Выполни все задания, чтобы получить награду.");
+          return;
+      }
+
+      // Check for partial
+      const hasPartial = Object.values(taskResponses).includes('partial');
+      const multiplier = hasPartial ? 0.5 : 1;
+      setRewardMultiplier(multiplier);
+
+      setShowAffirmation(true); // Go to affirmation step
+  };
+
+  const handleFinalComplete = () => {
+      setCompleted(true);
+      setTimeout(() => {
+        dispatch(markQuestCompleted(quest.id));
+        dispatch(completeQuestAction({ quest, multiplier: rewardMultiplier })); 
+      }, 500);
+  };
 
   return (
     <Modal
       isOpen={isOpen}
       onRequestClose={onClose}
-      className="outline-none"
+      className="outline-none focus:outline-none"
       style={{
+        overlay: {
+            backgroundColor: 'rgba(0, 0, 0, 0.85)',
+            backdropFilter: 'blur(8px)',
+            zIndex: 1300,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '10px'
+        },
         content: {
-            top: '50%', left: '50%', right: 'auto', bottom: 'auto', marginRight: '-50%', transform: 'translate(-50%, -50%)',
-            border: 'none', background: 'transparent', maxWidth: '650px', width: '95%', padding: 0
+            position: 'relative',
+            inset: 'auto',
+            border: 'none',
+            background: 'transparent',
+            padding: 0,
+            maxWidth: '650px',
+            width: '100%',
+            maxHeight: '90vh',
+            display: 'flex',
+            flexDirection: 'column'
         }
       }}
     >
       <motion.div 
-        initial={{ scale: 0.8, opacity: 0, rotateX: 20 }}
-        animate={{ scale: 1, opacity: 1, rotateX: 0 }}
-        exit={{ scale: 0.8, opacity: 0 }}
-        className="relative bg-[#1a1625] border-2 border-slate-600/50 rounded-2xl shadow-[0_0_50px_rgba(0,0,0,0.8)] overflow-hidden flex flex-col max-h-[85vh]"
+        initial={{ scale: 0.9, opacity: 0, y: 20 }}
+        animate={{ scale: 1, opacity: 1, y: 0 }}
+        className="relative bg-[#1a1625] border-2 border-slate-600/50 rounded-2xl shadow-[0_0_50px_rgba(0,0,0,0.8)] overflow-hidden flex flex-col w-full max-h-[90vh]"
       >
-        {/* Magical Glow Border */}
-        <div className="absolute inset-0 pointer-events-none rounded-2xl border-2 border-purple-500/20 box-border"></div>
+        {/* Glow Border */}
+        <div className="absolute inset-0 pointer-events-none rounded-2xl border-2 border-purple-500/20 box-border z-20"></div>
         
         {/* Header */}
-        <div className="bg-gradient-to-r from-purple-900 to-slate-900 p-6 relative border-b border-white/10">
-             <button onClick={onClose} className="absolute top-4 right-4 text-white/50 hover:text-white transition-colors"><X /></button>
+        <div className="bg-gradient-to-r from-purple-900 via-slate-900 to-slate-900 p-4 md:p-6 relative border-b border-white/10 shrink-0">
+             <button onClick={onClose} className="absolute top-4 right-4 z-30 p-2 bg-slate-800/50 rounded-full text-white/50 hover:text-white hover:bg-slate-700 transition-colors"><X size={20} /></button>
              
-             <div className="flex items-center gap-2 mb-2">
+             <div className="flex flex-wrap items-center gap-2 mb-2 pr-8">
                  <span className="bg-purple-500/20 text-purple-300 border border-purple-500/30 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest">{quest.category}</span>
-                 <span className="bg-slate-700 text-slate-300 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest">{quest.difficulty}</span>
+                 <span className="bg-slate-700 text-slate-300 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest">{quest.rarity}</span>
+                 {isStarted && timeLeft > 0 && (
+                     <span className="bg-amber-900/40 text-amber-400 border border-amber-500/30 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest flex items-center animate-pulse">
+                         <Clock size={10} className="mr-1"/> {formatTime(timeLeft)}
+                     </span>
+                 )}
+                 {isStarted && timeLeft === 0 && !completed && !quest.completed && (
+                     <span className="bg-emerald-900/40 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest">
+                         Готово к сдаче
+                     </span>
+                 )}
              </div>
 
-             <h2 className="text-3xl font-bold text-white rpg-font mb-2 text-shadow-lg">{quest.title}</h2>
-             <div className="flex items-center text-slate-400 text-sm italic">
-                 <button onClick={handleSpeak} className="mr-2 hover:text-white transition-colors">
+             <h2 className="text-xl md:text-3xl font-bold text-white rpg-font mb-2 text-shadow-lg leading-tight">{quest.title}</h2>
+             <div className="flex items-start md:items-center text-slate-400 text-sm italic">
+                 <button onClick={handleSpeak} className="mr-2 mt-0.5 md:mt-0 hover:text-white transition-colors shrink-0">
                     {isSpeaking ? <StopCircle size={16} /> : <Volume2 size={16} />}
                  </button>
-                 {quest.description}
+                 <span className="line-clamp-2 md:line-clamp-none">{quest.description}</span>
              </div>
-             
-             {/* Cooldown Bar */}
-             {!completed && !quest.completed && (
-                 <div className="absolute bottom-0 left-0 w-full h-1 bg-slate-800">
-                    <motion.div 
-                        animate={{ width: `${progressVal}%` }} 
-                        className="h-full bg-gradient-to-r from-purple-500 to-amber-500 shadow-[0_0_10px_#a855f7]"
-                    ></motion.div>
-                 </div>
-             )}
         </div>
 
         {/* Content */}
-        <div className="p-8 overflow-y-auto bg-slate-900/50 backdrop-blur-sm flex-1">
+        <div className="p-4 md:p-8 overflow-y-auto bg-slate-900/50 backdrop-blur-sm flex-1 scrollbar-thin scrollbar-thumb-purple-600 scrollbar-track-slate-800">
             <AnimatePresence mode="wait">
             {completed || quest.completed ? (
-              <motion.div initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} className="text-center py-10">
-                  <div className="inline-block p-6 rounded-full bg-amber-500/20 text-amber-500 mb-6 border border-amber-500/50 shadow-[0_0_30px_rgba(245,158,11,0.3)]">
-                      <Trophy size={64} />
+              <motion.div initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} className="text-center py-6 md:py-10">
+                  <div className="inline-block p-4 md:p-6 rounded-full bg-amber-500/20 text-amber-500 mb-6 border border-amber-500/50 shadow-[0_0_30px_rgba(245,158,11,0.3)]">
+                      <Trophy size={48} className="md:w-16 md:h-16" />
                   </div>
-                  <h3 className="text-3xl font-bold text-white rpg-font mb-2">Победа!</h3>
+                  <h3 className="text-2xl md:text-3xl font-bold text-white rpg-font mb-2">Победа!</h3>
                   <p className="text-slate-400 mb-8">Ты стал мудрее. Награда твоя.</p>
                   
-                  <div className="flex justify-center gap-6 mb-8">
-                      <div className="bg-slate-800/80 px-6 py-3 rounded-xl border border-amber-500/30 flex items-center shadow-lg">
-                          <Coins className="text-amber-400 mr-2 h-6 w-6" />
-                          <span className="font-bold text-xl text-white">+{quest.coins}</span>
+                  <div className="flex justify-center gap-4 md:gap-6 mb-8">
+                      <div className="bg-slate-800/80 px-4 md:px-6 py-3 rounded-xl border border-amber-500/30 flex items-center shadow-lg">
+                          <Coins className="text-amber-400 mr-2 h-5 w-5 md:h-6 md:w-6" />
+                          <span className="font-bold text-lg md:text-xl text-white">+{Math.floor(quest.coins * rewardMultiplier)}</span>
                       </div>
-                      <div className="bg-slate-800/80 px-6 py-3 rounded-xl border border-purple-500/30 flex items-center shadow-lg">
-                          <Star className="text-purple-400 mr-2 h-6 w-6" />
-                          <span className="font-bold text-xl text-white">+{quest.xp}</span>
+                      <div className="bg-slate-800/80 px-4 md:px-6 py-3 rounded-xl border border-purple-500/30 flex items-center shadow-lg">
+                          <Star className="text-purple-400 mr-2 h-5 w-5 md:h-6 md:w-6" />
+                          <span className="font-bold text-lg md:text-xl text-white">+{Math.floor(quest.xp * rewardMultiplier)}</span>
                       </div>
                   </div>
                   <button onClick={onClose} className="w-full py-3 rounded-xl border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors font-bold">Закрыть Свиток</button>
               </motion.div>
+            ) : showAffirmation ? (
+                <motion.div 
+                    initial={{ opacity: 0, y: 20 }} 
+                    animate={{ opacity: 1, y: 0 }} 
+                    className="text-center py-10"
+                >
+                    <Heart className="w-20 h-20 text-pink-500 mx-auto mb-6 animate-bounce" />
+                    <h3 className="text-2xl font-bold text-white mb-4">Ты молодец!</h3>
+                    <p className="text-lg text-slate-300 mb-8 max-w-md mx-auto leading-relaxed">
+                        Выполнив это задание, ты сделал вклад в свое будущее. Завтра будет немного легче, потому что ты постарался сегодня. Горжусь тобой!
+                        {rewardMultiplier < 1 && (
+                            <span className="block mt-4 text-amber-400 text-sm font-bold">
+                                (Награда уменьшена из-за частичного выполнения)
+                            </span>
+                        )}
+                    </p>
+                    <button 
+                        onClick={handleFinalComplete}
+                        className="bg-pink-600 hover:bg-pink-500 text-white px-8 py-4 rounded-xl font-bold text-lg shadow-lg hover:shadow-pink-500/30 transition-all transform hover:-translate-y-1"
+                    >
+                        Принять Силу
+                    </button>
+                </motion.div>
             ) : (
               <div className="space-y-6">
-                 {quest.tasks.map((task, idx) => (
-                     <motion.div 
-                        initial={{ x: -20, opacity: 0 }}
-                        animate={{ x: 0, opacity: 1 }}
-                        transition={{ delay: idx * 0.1 }}
-                        key={task.id} 
-                        className="bg-slate-800/60 p-5 rounded-xl border border-slate-700/50"
-                     >
-                         <div className="flex justify-between items-center mb-3">
-                             <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Руна {idx + 1}</span>
-                             {feedback[task.id] === true && <CheckCircle className="text-emerald-500 h-5 w-5" />}
-                             {feedback[task.id] === false && <AlertCircle className="text-red-500 h-5 w-5" />}
+                 {!isStarted ? (
+                     <div className="text-center py-10">
+                         <div className="w-20 h-20 bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-6 border-2 border-slate-700">
+                             <Clock size={40} className="text-slate-500" />
                          </div>
-                         <p className="font-medium text-slate-200 mb-4 text-lg">{task.question}</p>
-                         <input 
-                            type="text" 
-                            className={`w-full p-3 bg-slate-900 border rounded-lg text-white outline-none transition-all placeholder:text-slate-600
-                                ${feedback[task.id] === false ? 'border-red-500' : 'border-slate-700 focus:border-purple-500 focus:shadow-[0_0_15px_rgba(168,85,247,0.2)]'}
-                            `}
-                            placeholder="Напиши ответ..."
-                            value={answers[task.id] || ''}
-                            onChange={(e) => setAnswers(prev => ({...prev, [task.id]: e.target.value}))}
-                            disabled={feedback[task.id] === true}
-                         />
-                     </motion.div>
-                 ))}
+                         <p className="text-slate-400 mb-6">Время выполнения: <span className="text-white font-bold">{quest.minMinutes} мин</span></p>
+                         <button 
+                            onClick={handleStart}
+                            className="bg-primary-600 hover:bg-primary-500 text-white px-10 py-4 rounded-xl font-bold text-lg shadow-lg hover:shadow-primary-600/30 flex items-center justify-center mx-auto transition-transform active:scale-95"
+                         >
+                             <Play className="mr-2 fill-current" /> Начать Выполнение
+                         </button>
+                     </div>
+                 ) : (
+                     <div className="space-y-4">
+                        {quest.tasks.map((task, idx) => (
+                            <motion.div 
+                                initial={{ x: -20, opacity: 0 }}
+                                animate={{ x: 0, opacity: 1 }}
+                                transition={{ delay: idx * 0.1 }}
+                                key={task.id} 
+                                className="bg-slate-800/60 p-4 md:p-5 rounded-xl border border-slate-700/50"
+                            >
+                                <div className="flex justify-between items-center mb-3">
+                                    <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Руна {idx + 1}</span>
+                                    {taskResponses[task.id] === 'yes' && <CheckCircle className="text-emerald-500 h-5 w-5" />}
+                                    {taskResponses[task.id] === 'partial' && <MinusCircle className="text-amber-500 h-5 w-5" />}
+                                    {taskResponses[task.id] === 'no' && <XCircle className="text-red-500 h-5 w-5" />}
+                                </div>
+                                <p className="font-medium text-slate-200 mb-4 text-base md:text-lg">{task.question}</p>
+                                
+                                <div className="grid grid-cols-3 gap-2">
+                                    <button
+                                        onClick={() => setTaskResponses(prev => ({...prev, [task.id]: 'yes'}))}
+                                        className={`py-3 rounded-lg font-bold text-sm transition-all flex flex-col items-center justify-center gap-1 border-2
+                                            ${taskResponses[task.id] === 'yes' 
+                                                ? 'bg-emerald-600/20 border-emerald-500 text-emerald-400' 
+                                                : 'bg-slate-900 border-slate-700 text-slate-400 hover:border-emerald-500/50 hover:text-emerald-300'
+                                            }
+                                        `}
+                                    >
+                                        <Check size={18} />
+                                        Да
+                                    </button>
+                                    <button
+                                        onClick={() => setTaskResponses(prev => ({...prev, [task.id]: 'partial'}))}
+                                        className={`py-3 rounded-lg font-bold text-sm transition-all flex flex-col items-center justify-center gap-1 border-2
+                                            ${taskResponses[task.id] === 'partial' 
+                                                ? 'bg-amber-600/20 border-amber-500 text-amber-400' 
+                                                : 'bg-slate-900 border-slate-700 text-slate-400 hover:border-amber-500/50 hover:text-amber-300'
+                                            }
+                                        `}
+                                    >
+                                        <MinusCircle size={18} />
+                                        Частично
+                                    </button>
+                                    <button
+                                        onClick={() => setTaskResponses(prev => ({...prev, [task.id]: 'no'}))}
+                                        className={`py-3 rounded-lg font-bold text-sm transition-all flex flex-col items-center justify-center gap-1 border-2
+                                            ${taskResponses[task.id] === 'no' 
+                                                ? 'bg-red-600/20 border-red-500 text-red-400' 
+                                                : 'bg-slate-900 border-slate-700 text-slate-400 hover:border-red-500/50 hover:text-red-300'
+                                            }
+                                        `}
+                                    >
+                                        <X size={18} />
+                                        Нет
+                                    </button>
+                                </div>
+                            </motion.div>
+                        ))}
+                     </div>
+                 )}
               </div>
             )}
             </AnimatePresence>
         </div>
 
         {/* Footer */}
-        {!(completed || quest.completed) && (
-            <div className="p-6 bg-slate-900 border-t border-slate-800 flex justify-between items-center">
-                <div className="flex gap-4 text-sm font-bold">
+        {!(completed || quest.completed) && isStarted && !showAffirmation && (
+            <div className="p-4 md:p-6 bg-slate-900 border-t border-slate-800 flex flex-col md:flex-row justify-between items-center gap-4 shrink-0">
+                <div className="flex gap-4 text-sm font-bold w-full md:w-auto justify-center md:justify-start">
                     <span className="flex items-center text-amber-400"><Coins className="h-4 w-4 mr-1" /> {quest.coins}</span>
                     <span className="flex items-center text-purple-400"><Star className="h-4 w-4 mr-1" /> {quest.xp}</span>
                 </div>
                 <button 
-                   onClick={checkAnswers} 
-                   className={`px-8 py-3 rounded-xl font-bold text-white transition-all shadow-lg
-                       ${progressVal < 100 
+                   onClick={handleInitialCheck} 
+                   className={`w-full md:w-auto px-8 py-3 rounded-xl font-bold text-white transition-all shadow-lg
+                       ${timeLeft > 0 
                            ? 'bg-slate-700 text-slate-400 cursor-not-allowed' 
-                           : 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:shadow-purple-600/30 hover:scale-105 active:scale-95'
+                           : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:shadow-emerald-600/30 hover:scale-105 active:scale-95'
                        }
                    `}
                 >
-                    {progressVal < 100 ? 'Подготовка...' : 'Завершить'}
+                    {timeLeft > 0 ? `Подожди: ${formatTime(timeLeft)}` : 'Отметить как готовое'}
                 </button>
             </div>
         )}

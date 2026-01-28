@@ -1,10 +1,37 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { Award, Zap, Coins, CheckCircle, Sword, Edit2, Shield, Heart, Target, Sparkles, Map, Package, Crown, BookOpen, User, Download, Upload, Save } from 'lucide-react';
+import { Award, Zap, Coins, CheckCircle, Sword, Edit2, Shield, Heart, Target, Sparkles, Map, Package, Crown, BookOpen, User, Download, Upload, Save, TrendingUp, Calendar, Palette, History, Share2 } from 'lucide-react';
 import { RootState, AppDispatch } from '../store';
-import { updateUserProfile, equipSkin, importSaveData } from '../store/userSlice';
+import { updateUserProfile, equipSkin, importSaveData, setThemeColor } from '../store/userSlice';
 import Survey from '../components/Survey';
 import { motion } from 'framer-motion';
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  BarElement,
+  Title,
+  Tooltip,
+  Legend,
+  ChartOptions,
+  ChartData
+} from 'chart.js';
+import { Bar, Line } from 'react-chartjs-2';
+import { ThemeColor } from '../types';
+import { toast } from 'react-toastify';
+
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  BarElement,
+  Title,
+  Tooltip,
+  Legend
+);
 
 const AVATAR_OPTIONS = [
   { id: 'warrior', icon: Sword, label: 'Воин', color: 'from-red-500 to-orange-600' },
@@ -14,10 +41,19 @@ const AVATAR_OPTIONS = [
   { id: 'explorer', icon: Map, label: 'Искатель', color: 'from-blue-500 to-cyan-600' },
 ];
 
+const THEMES: { id: ThemeColor, color: string, label: string }[] = [
+    { id: 'purple', color: '#8b5cf6', label: 'Мистик' },
+    { id: 'blue', color: '#3b82f6', label: 'Небо' },
+    { id: 'green', color: '#22c55e', label: 'Лес' },
+    { id: 'crimson', color: '#f43f5e', label: 'Огонь' },
+    { id: 'amber', color: '#f59e0b', label: 'Золото' },
+];
+
 const Profile: React.FC = () => {
   const user = useSelector((state: RootState) => state.user.currentUser);
   const shopItems = useSelector((state: RootState) => state.rewards.shopItems);
   const achievementsList = useSelector((state: RootState) => state.rewards.achievements);
+  const questsList = useSelector((state: RootState) => state.quests.list);
   const dispatch = useDispatch<AppDispatch>();
   
   const [activeTab, setActiveTab] = useState<'stats' | 'inventory' | 'achievements' | 'data'>('stats');
@@ -25,9 +61,104 @@ const Profile: React.FC = () => {
   const [editName, setEditName] = useState(user?.username || '');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  if (!user) return null;
+  // --- Chart Data Calculation ---
+  const statsData = useMemo(() => {
+    if (!user) return { labels: [], quests: [], coins: [], totalQuests: 0, totalCoins: 0 };
 
-  const xpPercentage = Math.min(100, (user.currentXp / user.nextLevelXp) * 100);
+    const labels: string[] = [];
+    const questCounts: number[] = [];
+    const coinCounts: number[] = [];
+    let totalQuestsWeek = 0;
+    let totalCoinsWeek = 0;
+
+    // Last 7 Days
+    for (let i = 6; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        const dateStr = d.toISOString().split('T')[0]; // YYYY-MM-DD
+        
+        // Format label (e.g., "Mon", "12.05")
+        const label = d.toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric' });
+        labels.push(label);
+
+        // Find history items for this day
+        const dayHistory = (user.questHistory || []).filter(h => h.date.startsWith(dateStr));
+        
+        // Count quests
+        const qCount = dayHistory.length;
+        questCounts.push(qCount);
+        totalQuestsWeek += qCount;
+
+        // Sum coins (lookup quest value)
+        const cCount = dayHistory.reduce((acc, item) => {
+            const quest = questsList.find(q => q.id === item.questId);
+            return acc + (quest ? quest.coins : 0);
+        }, 0);
+        coinCounts.push(cCount);
+        totalCoinsWeek += cCount;
+    }
+
+    return { labels, quests: questCounts, coins: coinCounts, totalQuests: totalQuestsWeek, totalCoins: totalCoinsWeek };
+  }, [user, questsList]);
+
+  // --- Chart Options ---
+  const commonOptions: ChartOptions<'bar' | 'line'> = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+        legend: { labels: { color: '#94a3b8', font: { family: '"Exo 2"' } } },
+        tooltip: {
+            backgroundColor: 'rgba(15, 23, 42, 0.9)',
+            titleColor: '#f1f5f9',
+            bodyColor: '#cbd5e1',
+            borderColor: 'rgba(var(--color-primary-500), 0.3)',
+            borderWidth: 1,
+            padding: 10,
+            cornerRadius: 8,
+        }
+    },
+    scales: {
+        x: { 
+            grid: { color: 'rgba(148, 163, 184, 0.1)' },
+            ticks: { color: '#64748b' } 
+        },
+        y: { 
+            grid: { color: 'rgba(148, 163, 184, 0.1)' },
+            ticks: { color: '#64748b', precision: 0 }
+        }
+    }
+  };
+
+  const questsChartData: ChartData<'bar'> = {
+      labels: statsData.labels,
+      datasets: [{
+          label: 'Выполнено квестов',
+          data: statsData.quests,
+          backgroundColor: 'rgba(var(--color-primary-500), 0.6)', 
+          borderColor: 'rgba(var(--color-primary-600), 1)',
+          borderWidth: 1,
+          borderRadius: 6,
+          hoverBackgroundColor: 'rgba(var(--color-primary-400), 1)'
+      }]
+  };
+
+  const coinsChartData: ChartData<'line'> = {
+      labels: statsData.labels,
+      datasets: [{
+          label: 'Заработано золота',
+          data: statsData.coins,
+          borderColor: '#f59e0b', // Amber
+          backgroundColor: 'rgba(245, 158, 11, 0.2)',
+          pointBackgroundColor: '#fbbf24',
+          pointBorderColor: '#fff',
+          pointRadius: 4,
+          tension: 0.4, // Smooth curve
+          fill: true
+      }]
+  };
+
+
+  if (!user) return null;
 
   const handleSave = () => {
     dispatch(updateUserProfile({ username: editName }) as any);
@@ -58,6 +189,13 @@ const Profile: React.FC = () => {
     }
   };
 
+  const handleShare = () => {
+      const lastQuests = user.questHistory?.slice(-3).map(q => q.questTitle).join(', ');
+      const text = `Я выполнил: ${lastQuests} в MotivaQuest! У меня ${user.level} уровень.`;
+      navigator.clipboard.writeText(text);
+      toast.success("Твои подвиги скопированы! Поделись ими.");
+  };
+
   const CurrentAvatarData = AVATAR_OPTIONS.find(a => a.id === user.avatar) || AVATAR_OPTIONS[0];
   const CurrentIcon = CurrentAvatarData.icon;
 
@@ -67,13 +205,18 @@ const Profile: React.FC = () => {
     <div className="max-w-4xl mx-auto space-y-6">
       
       {/* Hero Card */}
-      <div className="glass-panel p-8 rounded-3xl relative overflow-hidden">
+      <div className="glass-panel p-6 md:p-8 rounded-3xl relative overflow-hidden rpg-border">
+        <div className="corner-accent corner-tl"></div>
+        <div className="corner-accent corner-tr"></div>
+        <div className="corner-accent corner-bl"></div>
+        <div className="corner-accent corner-br"></div>
+        
         <div className={`absolute top-0 right-0 w-64 h-64 bg-gradient-to-br ${CurrentAvatarData.color} opacity-20 blur-[80px] rounded-full`}></div>
         
-        <div className="relative z-10 flex flex-col md:flex-row gap-8 items-center md:items-start">
+        <div className="relative z-10 flex flex-col md:flex-row gap-6 md:gap-8 items-center md:items-start">
             {/* Avatar */}
-            <div className="relative group">
-                <div className={`w-32 h-32 rounded-full bg-gradient-to-br ${CurrentAvatarData.color} p-1 shadow-[0_0_30px_rgba(0,0,0,0.5)]`}>
+            <div className="relative group shrink-0">
+                <div className={`w-28 h-28 md:w-32 md:h-32 rounded-full bg-gradient-to-br ${CurrentAvatarData.color} p-1 shadow-[0_0_30px_rgba(0,0,0,0.5)]`}>
                     <div className="w-full h-full bg-slate-900 rounded-full flex items-center justify-center border-4 border-slate-800 relative overflow-hidden">
                         <CurrentIcon size={64} className="text-white drop-shadow-lg" />
                     </div>
@@ -84,39 +227,41 @@ const Profile: React.FC = () => {
             </div>
 
             {/* Info */}
-            <div className="flex-1 text-center md:text-left w-full">
+            <div className="flex-1 text-center md:text-left w-full flex flex-col items-center md:items-start">
                 {isEditing ? (
-                    <div className="flex gap-2 max-w-xs mb-4">
+                    <div className="flex gap-2 max-w-xs mb-4 w-full justify-center md:justify-start">
                         <input value={editName} onChange={(e) => setEditName(e.target.value)} className="bg-slate-900 border border-slate-600 rounded px-3 py-2 text-white w-full" />
                         <button onClick={handleSave} className="bg-green-600 px-4 rounded text-white">OK</button>
                     </div>
                 ) : (
-                    <h1 className="text-4xl font-bold text-white mb-2 rpg-font">{user.username}</h1>
+                    <h1 className="text-3xl md:text-4xl font-bold text-white mb-2 rpg-font break-all">{user.username}</h1>
                 )}
                 
                 <div className="flex items-center justify-center md:justify-start gap-4 mb-6">
                     <span className="px-3 py-1 bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-lg text-xs font-bold uppercase tracking-widest flex items-center">
                         <Shield size={12} className="mr-1" /> Уровень {user.level}
                     </span>
-                    <span className="px-3 py-1 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded-lg text-xs font-bold uppercase tracking-widest">
-                        {CurrentAvatarData.label}
-                    </span>
+                    {user.streakDays > 0 && (
+                        <span className="px-3 py-1 bg-rose-500/20 text-rose-400 border border-rose-500/30 rounded-lg text-xs font-bold uppercase tracking-widest flex items-center">
+                            <Zap size={12} className="mr-1" /> Стрик {user.streakDays}
+                        </span>
+                    )}
                 </div>
 
                 {/* Stat Grid */}
-                <div className="grid grid-cols-2 gap-4 max-w-md">
-                    <div className="bg-slate-900/50 p-3 rounded-xl border border-slate-700/50 flex items-center">
+                <div className="grid grid-cols-2 gap-4 w-full max-w-md">
+                    <div className="bg-slate-900/50 p-3 rounded-xl border border-slate-700/50 flex items-center justify-center md:justify-start">
                         <Coins className="text-amber-400 mr-3" />
-                        <div>
+                        <div className="text-left">
                             <div className="text-xs text-slate-500 uppercase font-bold">Золото</div>
-                            <div className="text-xl font-bold text-white">{user.coins}</div>
+                            <div className="text-lg md:text-xl font-bold text-white">{user.coins}</div>
                         </div>
                     </div>
-                    <div className="bg-slate-900/50 p-3 rounded-xl border border-slate-700/50 flex items-center">
+                    <div className="bg-slate-900/50 p-3 rounded-xl border border-slate-700/50 flex items-center justify-center md:justify-start">
                         <CheckCircle className="text-emerald-400 mr-3" />
-                        <div>
+                        <div className="text-left">
                             <div className="text-xs text-slate-500 uppercase font-bold">Квесты</div>
-                            <div className="text-xl font-bold text-white">{user.completedQuests}</div>
+                            <div className="text-lg md:text-xl font-bold text-white">{user.completedQuests}</div>
                         </div>
                     </div>
                 </div>
@@ -127,14 +272,14 @@ const Profile: React.FC = () => {
       <Survey />
 
       {/* Tabs */}
-      <div className="glass-panel p-2 rounded-2xl flex overflow-x-auto gap-2">
+      <div className="glass-panel p-2 rounded-2xl flex overflow-x-auto gap-2 scrollbar-hide">
         {['stats', 'inventory', 'achievements', 'data'].map(tab => (
             <button
                 key={tab}
                 onClick={() => setActiveTab(tab as any)}
-                className={`px-6 py-3 rounded-xl font-bold text-sm transition-all whitespace-nowrap flex items-center gap-2 ${
+                className={`px-4 md:px-6 py-3 rounded-xl font-bold text-sm transition-all whitespace-nowrap flex items-center gap-2 flex-shrink-0 ${
                     activeTab === tab 
-                    ? 'bg-purple-600 text-white shadow-lg' 
+                    ? 'bg-primary-600 text-white shadow-lg' 
                     : 'text-slate-400 hover:bg-slate-800 hover:text-white'
                 }`}
             >
@@ -157,19 +302,19 @@ const Profile: React.FC = () => {
         className="glass-panel p-6 rounded-3xl min-h-[300px]"
       >
           {activeTab === 'inventory' && (
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
                   {AVATAR_OPTIONS.map(skin => (
                       <div key={skin.id} onClick={() => handleEquip(skin.id)} 
-                        className={`p-4 rounded-xl border-2 cursor-pointer transition-all flex flex-col items-center ${user.avatar === skin.id ? 'border-purple-500 bg-purple-500/10' : 'border-slate-700 hover:border-slate-500'}`}>
+                        className={`p-4 rounded-xl border-2 cursor-pointer transition-all flex flex-col items-center ${user.avatar === skin.id ? 'border-primary-500 bg-primary-500/10' : 'border-slate-700 hover:border-slate-500'}`}>
                           <skin.icon size={32} className="mb-2 text-slate-200" />
                           <span className="text-xs font-bold text-slate-400">{skin.label}</span>
-                          {user.avatar === skin.id && <span className="text-[10px] text-purple-400 mt-1">EQUIPPED</span>}
+                          {user.avatar === skin.id && <span className="text-[10px] text-primary-400 mt-1">EQUIPPED</span>}
                       </div>
                   ))}
                   {mySkins.map(skin => (
                       <div key={skin.id} onClick={() => handleEquip(skin.value)}
-                         className={`p-4 rounded-xl border-2 cursor-pointer transition-all flex flex-col items-center ${user.avatar === skin.value ? 'border-purple-500 bg-purple-500/10' : 'border-slate-700 hover:border-slate-500'}`}>
-                          <User size={32} className="mb-2 text-purple-300" />
+                         className={`p-4 rounded-xl border-2 cursor-pointer transition-all flex flex-col items-center ${user.avatar === skin.value ? 'border-primary-500 bg-primary-500/10' : 'border-slate-700 hover:border-slate-500'}`}>
+                          <User size={32} className="mb-2 text-primary-300" />
                           <span className="text-xs font-bold text-slate-400">{skin.name}</span>
                       </div>
                   ))}
@@ -182,11 +327,11 @@ const Profile: React.FC = () => {
                       const unlocked = user.achievements?.includes(ach.id);
                       return (
                           <div key={ach.id} className={`p-4 rounded-xl border flex items-center gap-4 ${unlocked ? 'border-amber-500/30 bg-amber-900/10' : 'border-slate-700 bg-slate-800/50 opacity-50'}`}>
-                              <div className={`w-12 h-12 rounded-full flex items-center justify-center ${unlocked ? 'bg-amber-500 text-slate-900' : 'bg-slate-700 text-slate-500'}`}>
+                              <div className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 ${unlocked ? 'bg-amber-500 text-slate-900' : 'bg-slate-700 text-slate-500'}`}>
                                   <Award size={24} />
                               </div>
                               <div>
-                                  <h4 className={`font-bold ${unlocked ? 'text-amber-100' : 'text-slate-500'}`}>{ach.title}</h4>
+                                  <h4 className={`font-bold text-sm md:text-base ${unlocked ? 'text-amber-100' : 'text-slate-500'}`}>{ach.title}</h4>
                                   <p className="text-xs text-slate-500">{ach.description}</p>
                               </div>
                           </div>
@@ -196,21 +341,108 @@ const Profile: React.FC = () => {
           )}
           
           {activeTab === 'data' && (
-              <div className="flex flex-col gap-4 max-w-sm">
-                  <button onClick={handleExportData} className="flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 border border-slate-600 py-3 rounded-xl text-white font-bold">
-                      <Download size={18} /> Сохранить прогресс
-                  </button>
-                  <label className="flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 border border-slate-600 border-dashed py-3 rounded-xl text-slate-400 hover:text-white cursor-pointer font-bold">
-                      <Upload size={18} /> Загрузить файл
-                      <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept=".json" />
-                  </label>
+              <div className="flex flex-col gap-8">
+                  
+                  {/* Theme Selector */}
+                  <div>
+                      <h3 className="font-bold text-slate-300 mb-4 flex items-center gap-2">
+                          <Palette size={20} /> Цвет Интерфейса
+                      </h3>
+                      <div className="flex gap-4 flex-wrap">
+                          {THEMES.map(theme => (
+                              <button
+                                  key={theme.id}
+                                  onClick={() => dispatch(setThemeColor(theme.id))}
+                                  className={`flex items-center gap-2 px-4 py-3 rounded-xl border-2 transition-all ${
+                                      user.themeColor === theme.id 
+                                        ? 'border-white bg-white/10' 
+                                        : 'border-slate-700 hover:border-slate-500 bg-slate-800'
+                                  }`}
+                              >
+                                  <div className="w-6 h-6 rounded-full" style={{ backgroundColor: theme.color }}></div>
+                                  <span className="font-bold text-sm text-slate-200">{theme.label}</span>
+                              </button>
+                          ))}
+                      </div>
+                  </div>
+
+                  <div className="border-t border-slate-700/50 pt-6 flex flex-col gap-4 max-w-sm">
+                      <h3 className="font-bold text-slate-300 mb-2">Управление Данными</h3>
+                      <button onClick={handleExportData} className="flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 border border-slate-600 py-3 rounded-xl text-white font-bold">
+                          <Download size={18} /> Сохранить прогресс
+                      </button>
+                      <label className="flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 border border-slate-600 border-dashed py-3 rounded-xl text-slate-400 hover:text-white cursor-pointer font-bold">
+                          <Upload size={18} /> Загрузить файл
+                          <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept=".json" />
+                      </label>
+                  </div>
               </div>
           )}
 
           {activeTab === 'stats' && (
-              <div className="text-center text-slate-400 py-10">
-                  <p>Статистика сражений будет доступна на уровне 5.</p>
-              </div>
+            <div className="space-y-8">
+               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-700/50 flex items-center gap-4">
+                      <div className="p-3 bg-primary-900/20 rounded-full text-primary-400 border border-primary-500/30">
+                          <CheckCircle size={24} />
+                      </div>
+                      <div>
+                          <p className="text-xs text-slate-500 uppercase font-bold">Квесты (7 дней)</p>
+                          <p className="text-2xl font-black text-white">{statsData.totalQuests}</p>
+                      </div>
+                  </div>
+                  <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-700/50 flex items-center gap-4">
+                      <div className="p-3 bg-amber-900/20 rounded-full text-amber-400 border border-amber-500/30">
+                          <TrendingUp size={24} />
+                      </div>
+                      <div>
+                          <p className="text-xs text-slate-500 uppercase font-bold">Заработок (7 дней)</p>
+                          <p className="text-2xl font-black text-amber-400">{statsData.totalCoins}</p>
+                      </div>
+                  </div>
+               </div>
+
+               {/* Quest History List */}
+               <div className="bg-slate-900/40 p-4 rounded-2xl border border-slate-700/30">
+                   <div className="flex justify-between items-center mb-4">
+                       <h4 className="text-slate-300 font-bold flex items-center gap-2 text-sm uppercase tracking-wide">
+                           <History size={16} className="text-blue-400"/> Лента Подвигов
+                       </h4>
+                       <button onClick={handleShare} className="text-xs font-bold text-primary-400 hover:text-white flex items-center gap-1">
+                           <Share2 size={12} /> Поделиться
+                       </button>
+                   </div>
+                   <div className="space-y-2 max-h-64 overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-slate-700">
+                       {[...(user.questHistory || [])].reverse().slice(0, 20).map((h, i) => (
+                           <div key={i} className="flex justify-between items-center text-sm p-2 rounded bg-slate-800/50 border border-slate-700/50">
+                               <span className="text-slate-300 truncate mr-2">{h.questTitle || `Квест #${h.questId}`}</span>
+                               <div className="flex items-center gap-3 shrink-0">
+                                   <span className="text-purple-400 font-bold">+{h.xpEarned} XP</span>
+                                   <span className="text-slate-500 text-xs">{new Date(h.date).toLocaleDateString()}</span>
+                               </div>
+                           </div>
+                       ))}
+                       {(!user.questHistory || user.questHistory.length === 0) && (
+                           <div className="text-center text-slate-500 py-4 text-xs">Пока тишина... Соверши подвиг!</div>
+                       )}
+                   </div>
+               </div>
+
+               <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                  <div className="h-64 md:h-80 bg-slate-900/40 p-4 rounded-2xl border border-slate-700/30">
+                      <h4 className="text-slate-300 font-bold mb-4 flex items-center gap-2 text-sm uppercase tracking-wide">
+                          <Calendar size={16} className="text-primary-400"/> Активность по квестам
+                      </h4>
+                      <Bar data={questsChartData} options={commonOptions as any} />
+                  </div>
+                  <div className="h-64 md:h-80 bg-slate-900/40 p-4 rounded-2xl border border-slate-700/30">
+                      <h4 className="text-slate-300 font-bold mb-4 flex items-center gap-2 text-sm uppercase tracking-wide">
+                          <Coins size={16} className="text-amber-400"/> Приток Золота
+                      </h4>
+                      <Line data={coinsChartData} options={commonOptions as any} />
+                  </div>
+               </div>
+            </div>
           )}
       </motion.div>
     </div>

@@ -44,23 +44,29 @@ const Navbar: React.FC = () => {
       className="sticky top-4 z-50 px-4 mb-8"
     >
       <div className="container mx-auto max-w-6xl">
-        <div className="bg-slate-900/80 backdrop-blur-xl border border-slate-700/50 rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.4)] px-6 py-3 flex justify-between items-center relative overflow-hidden">
+        <div className="glass-panel rounded-2xl px-6 py-3 flex justify-between items-center relative overflow-hidden rpg-border">
           
+          {/* Decorative Corners */}
+          <div className="corner-accent corner-tl"></div>
+          <div className="corner-accent corner-tr"></div>
+          <div className="corner-accent corner-bl"></div>
+          <div className="corner-accent corner-br"></div>
+
           {/* Glow Effect */}
-          <div className="absolute top-0 left-1/4 w-1/2 h-1 bg-gradient-to-r from-transparent via-purple-500 to-transparent opacity-50 blur-sm"></div>
+          <div className="absolute top-0 left-1/4 w-1/2 h-1 bg-gradient-to-r from-transparent via-primary-500 to-transparent opacity-50 blur-sm"></div>
 
           {/* Logo */}
-          <Link to="/" className="flex items-center space-x-3 group">
-            <div className="bg-gradient-to-br from-purple-600 to-indigo-700 p-2 rounded-lg shadow-lg group-hover:shadow-purple-500/50 transition-all duration-300">
+          <Link to="/" className="flex items-center space-x-3 group relative z-10">
+            <div className="bg-gradient-to-br from-primary-600 to-primary-800 p-2 rounded-lg shadow-lg group-hover:shadow-primary-500/50 transition-all duration-300">
                 <Sword className="h-6 w-6 text-white" />
             </div>
-            <span className="font-bold text-xl rpg-font tracking-wider bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400 group-hover:to-purple-300 transition-all">
+            <span className="font-bold text-xl rpg-font tracking-wider bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400 group-hover:to-primary-300 transition-all">
                 MotivaQuest
             </span>
           </Link>
 
           {/* Desktop Menu */}
-          <div className="hidden md:flex items-center space-x-2">
+          <div className="hidden md:flex items-center space-x-2 relative z-10">
             {navLinks.map((link) => (
               (link.public || isAuthenticated) && (
                 <Link
@@ -71,12 +77,12 @@ const Navbar: React.FC = () => {
                   {isActive(link.path) && (
                     <motion.div
                       layoutId="navbar-active"
-                      className="absolute inset-0 bg-purple-600/20 border border-purple-500/30 rounded-xl"
+                      className="absolute inset-0 bg-primary-600/20 border border-primary-500/30 rounded-xl"
                       transition={{ type: 'spring', bounce: 0.2, duration: 0.6 }}
                     />
                   )}
-                  <span className={`relative flex items-center gap-2 ${isActive(link.path) ? 'text-purple-300 shadow-purple-500' : 'text-slate-400 group-hover:text-white'}`}>
-                    <link.icon className={`h-4 w-4 ${isActive(link.path) ? 'text-purple-400' : ''}`} />
+                  <span className={`relative flex items-center gap-2 ${isActive(link.path) ? 'text-primary-300 shadow-primary-500' : 'text-slate-400 group-hover:text-white'}`}>
+                    <link.icon className={`h-4 w-4 ${isActive(link.path) ? 'text-primary-400' : ''}`} />
                     {link.label}
                   </span>
                 </Link>
@@ -93,7 +99,7 @@ const Navbar: React.FC = () => {
 
                 <div className="flex flex-col items-end leading-tight">
                     <span className="text-sm font-bold text-white">{user?.username}</span>
-                    <span className="text-[10px] text-purple-400 font-bold uppercase tracking-widest flex items-center">
+                    <span className="text-[10px] text-primary-400 font-bold uppercase tracking-widest flex items-center">
                         <Zap size={10} className="mr-1" /> LVL {user?.level}
                     </span>
                 </div>
@@ -111,7 +117,7 @@ const Navbar: React.FC = () => {
                  <motion.button 
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
-                    className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-5 py-2 rounded-xl font-bold text-sm shadow-lg hover:shadow-purple-500/30 flex items-center gap-2"
+                    className="bg-gradient-to-r from-primary-600 to-primary-700 text-white px-5 py-2 rounded-xl font-bold text-sm shadow-lg hover:shadow-primary-500/30 flex items-center gap-2"
                  >
                     <LogIn size={16} /> Войти
                  </motion.button>
@@ -120,7 +126,7 @@ const Navbar: React.FC = () => {
           </div>
 
           {/* Mobile Toggle */}
-          <div className="md:hidden flex items-center gap-4">
+          <div className="md:hidden flex items-center gap-4 relative z-10">
              {isAuthenticated && (
                 <div className={`text-xs font-mono font-bold ${timeRemaining < 300 ? 'text-red-400' : 'text-emerald-400'}`}>
                    {formatTime(timeRemaining)}
@@ -150,7 +156,7 @@ const Navbar: React.FC = () => {
                   to={link.path}
                   onClick={() => setIsOpen(false)}
                   className={`flex items-center space-x-3 px-4 py-3 rounded-xl transition-colors ${
-                      isActive(link.path) ? 'bg-purple-600/20 text-purple-300 border border-purple-500/30' : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+                      isActive(link.path) ? 'bg-primary-600/20 text-primary-300 border border-primary-500/30' : 'text-slate-400 hover:bg-slate-800 hover:text-white'
                   }`}
                 >
                   <link.icon className="h-5 w-5" />

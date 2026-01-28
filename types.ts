@@ -1,5 +1,3 @@
-
-
 export interface Task {
   id: number;
   question: string;
@@ -9,7 +7,24 @@ export interface Task {
 }
 
 export type QuestRarity = 'Common' | 'Rare' | 'Epic' | 'Legendary';
-export type QuestCategory = 'Math' | 'Science' | 'History' | 'Lang' | 'Art' | 'Sport';
+
+export type ThemeColor = 'purple' | 'blue' | 'green' | 'crimson' | 'amber';
+
+// Расширенный список категорий для школьной программы
+export type QuestCategory = 
+  | 'Math'        // Математика, Алгебра, Геометрия
+  | 'Russian'     // Русский язык
+  | 'Literature'  // Литература
+  | 'Lang'        // Иностранные языки
+  | 'Science'     // Физика, Химия, Биология, Окр. мир
+  | 'History'     // История, Обществознание
+  | 'Sport'       // Физкультура, Здоровье
+  | 'Social'      // Социум, Общение, Семья
+  | 'Ecology'     // Экология
+  | 'Self'        // Личное развитие, Тайм-менеджмент
+  | 'Finance'     // Финансовая грамотность
+  | 'IT'          // Информатика
+  | 'Art';        // Творчество
 
 export interface Quest {
   id: number;
@@ -22,8 +37,10 @@ export interface Quest {
   coins: number;
   completed: boolean;
   tasks: Task[];
-  type: 'daily' | 'story'; // Removed group type
+  type: 'daily' | 'story'; 
+  grade?: number; 
   cooldownSeconds?: number;
+  minMinutes: number; // New: Minimum time required
 }
 
 export interface ShopItem {
@@ -41,7 +58,7 @@ export interface Achievement {
   title: string;
   description: string;
   icon: string;
-  conditionType: 'quests' | 'xp' | 'coins' | 'items';
+  conditionType: 'quests' | 'xp' | 'coins' | 'items' | 'streak';
   threshold: number;
   rewardXp: number;
   rewardCoins: number;
@@ -49,6 +66,8 @@ export interface Achievement {
 
 export interface QuestHistoryItem {
   questId: number;
+  questTitle: string; // Added for easy history display
+  xpEarned: number;
   date: string; // ISO String
 }
 
@@ -67,6 +86,7 @@ export interface UserProfile {
   role: 'student' | 'admin';
   avatar: string; 
   level: number;
+  grade?: number; 
   currentXp: number;
   nextLevelXp: number;
   coins: number;
@@ -76,12 +96,22 @@ export interface UserProfile {
   questHistory: QuestHistoryItem[];
   surveyHistory: SurveySubmission[];
   hasParentalConsent: boolean;
-  lastDailyMood?: string; // Date string of last mood check
+  lastDailyMood?: string; 
+  themeColor?: ThemeColor;
+  
+  // Anti-Cheat & Mechanics
+  activeQuestTimers: Record<number, number>; // questId -> timestamp (start time)
+  dailyCompletionsCount: number;
+  lastCompletionTime?: number;
+  suspiciousFlags: number;
+  penaltyUntil?: number; // timestamp until penalties apply
+  streakDays: number;
+  lastLoginDate?: string;
 }
 
 export interface LeaderboardUser {
   id: number;
-  username: string; // Will be displayed anonymously
+  username: string; 
   avatar: string;
   level: number;
   xp: number;

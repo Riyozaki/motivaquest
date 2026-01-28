@@ -1,7 +1,5 @@
-
-
 import { createSlice, PayloadAction, createAsyncThunk } from '@reduxjs/toolkit';
-import { UserProfile, Achievement, SurveySubmission } from '../types';
+import { UserProfile, Achievement, SurveySubmission, ThemeColor, Quest } from '../types';
 import { toast } from 'react-toastify';
 import { RootState } from './index';
 
@@ -70,7 +68,12 @@ export const loginDemo = createAsyncThunk('user/loginDemo', async () => {
             achievements: [],
             surveyHistory: [],
             questHistory: [],
-            hasParentalConsent: true
+            hasParentalConsent: true,
+            themeColor: 'purple',
+            activeQuestTimers: {},
+            dailyCompletionsCount: 0,
+            suspiciousFlags: 0,
+            streakDays: 0
         };
         saveLocalUsers(users);
     }
@@ -85,6 +88,27 @@ export const loginLocal = createAsyncThunk(
     const users = getLocalUsers();
     const user = Object.values(users).find(u => u.email === payload.email && u.password === payload.password);
     if (!user) throw new Error('Неверный email или пароль');
+    
+    // Check streaks on login
+    const today = new Date().toDateString();
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = yesterday.toDateString();
+
+    if (user.lastLoginDate !== today) {
+        // New day
+        user.dailyCompletionsCount = 0; // Reset daily count
+        
+        if (user.lastLoginDate === yesterdayStr) {
+            user.streakDays += 1;
+        } else {
+            user.streakDays = 1; // Reset streak
+        }
+        user.lastLoginDate = today;
+        users[user.uid!] = user;
+        saveLocalUsers(users);
+    }
+
     localStorage.setItem(STORAGE_KEY_CURRENT_SESSION, user.uid!);
     return user;
   }
@@ -113,7 +137,13 @@ export const registerLocal = createAsyncThunk(
       achievements: [],
       surveyHistory: [],
       questHistory: [],
-      hasParentalConsent: payload.hasConsent
+      hasParentalConsent: payload.hasConsent,
+      themeColor: 'purple',
+      activeQuestTimers: {},
+      dailyCompletionsCount: 0,
+      suspiciousFlags: 0,
+      streakDays: 1,
+      lastLoginDate: new Date().toDateString()
     };
 
     users[newUid] = newUser;
@@ -165,6 +195,28 @@ export const submitDailyMood = createAsyncThunk(
     }
 );
 
+export const startQuestAction = createAsyncThunk(
+    'user/startQuest',
+    async (questId: number, { getState }) => {
+        const state = getState() as RootState;
+        const user = state.user.currentUser;
+        if (!user) return;
+
+        // If already started, do nothing
+        if (user.activeQuestTimers && user.activeQuestTimers[questId]) return;
+
+        const timers = { ...user.activeQuestTimers, [questId]: Date.now() };
+        const updates = { activeQuestTimers: timers };
+        
+        const users = getLocalUsers();
+        if (user.uid) {
+            users[user.uid] = { ...users[user.uid], ...updates };
+            saveLocalUsers(users);
+        }
+        return updates;
+    }
+);
+
 export const addExperience = createAsyncThunk(
   'user/addExperience',
   async (payload: { xp: number; coins: number }, { getState, dispatch }) => {
@@ -191,10 +243,6 @@ export const addExperience = createAsyncThunk(
       coins: newCoins,
     };
     
-    // Save happens in reducer/extraReducer or separate step
-    // But we need to check achievements here or in extraReducers
-    // We'll return updates and let extraReducer handle state/save, 
-    // but trigger checkAchievements separately
     setTimeout(() => {
         dispatch(checkAchievements());
     }, 500);
@@ -205,24 +253,86 @@ export const addExperience = createAsyncThunk(
 
 export const completeQuestAction = createAsyncThunk(
     'user/completeQuestAction',
-    async (questId: number, { getState, dispatch }) => {
+    async (payload: { quest: Quest, multiplier?: number }, { getState, dispatch }) => {
         const state = getState() as RootState;
         const user = state.user.currentUser;
         if (!user) return;
 
-        const historyItem = { questId, date: new Date().toISOString() };
-        const newHistory = [...(user.questHistory || []), historyItem];
-        const newCompletedCount = user.completedQuests + 1;
+        const { quest, multiplier = 1 } = payload;
 
-        // We assume XP was already added via addExperience called from UI/Modal
-        // This thunk strictly updates history and count
+        const now = Date.now();
+        const startTime = user.activeQuestTimers?.[quest.id] || now;
+        const timeDiffMinutes = (now - startTime) / 60000;
         
+        // Apply multiplier to rewards
+        let xpReward = Math.floor(quest.xp * multiplier);
+        let coinsReward = Math.floor(quest.coins * multiplier);
+        
+        let isSuspicious = false;
+        let message = "";
+
+        // 1. Check Daily Limit
+        const dailyCount = user.dailyCompletionsCount || 0;
+        if (dailyCount >= 10) {
+            xpReward = 0;
+            coinsReward = 0;
+            message = "Лимит на сегодня исчерпан (10/10). Ты молодец, но нужно отдыхать.";
+        }
+
+        // 2. Check Speed Cheating
+        else if (timeDiffMinutes < quest.minMinutes * 0.9) { // 10% tolerance
+            xpReward = Math.floor(xpReward * 0.5);
+            message = `Подозрительная скорость! XP уполовинено. (Нужно ${quest.minMinutes} мин)`;
+        }
+
+        // 3. Check Burst Cheating (e.g. 5 quests in 5 minutes)
+        if (user.lastCompletionTime) {
+            const timeSinceLast = (now - user.lastCompletionTime) / 60000;
+            if (timeSinceLast < 1 && dailyCount > 0) {
+                 isSuspicious = true;
+            }
+        }
+
+        if (isSuspicious) {
+            const newFlags = (user.suspiciousFlags || 0) + 1;
+            if (newFlags >= 3) {
+                xpReward = 0;
+                message = "Ты робот? Награды заблокированы из-за подозрительной активности.";
+            } else {
+                message += " Слишком быстро! Система следит за тобой.";
+            }
+            // Update flags in background implicitly via state update below
+        }
+
+        // Process Rewards
+        if (xpReward > 0) {
+            await dispatch(addExperience({ xp: xpReward, coins: coinsReward }));
+        }
+        
+        if (message) {
+            toast.warning(message, { autoClose: 5000 });
+        }
+
+        // Cleanup and Save
+        const historyItem = { 
+            questId: quest.id, 
+            questTitle: quest.title, 
+            xpEarned: xpReward,
+            date: new Date().toISOString() 
+        };
+        const newHistory = [...(user.questHistory || []), historyItem];
+        const newTimers = { ...user.activeQuestTimers };
+        delete newTimers[quest.id];
+
         const updates = {
-            completedQuests: newCompletedCount,
-            questHistory: newHistory
+            completedQuests: user.completedQuests + 1,
+            questHistory: newHistory,
+            activeQuestTimers: newTimers,
+            dailyCompletionsCount: dailyCount + 1,
+            lastCompletionTime: now,
+            suspiciousFlags: isSuspicious ? (user.suspiciousFlags || 0) + 1 : user.suspiciousFlags
         };
         
-        // Save
         const users = getLocalUsers();
         if (user.uid) {
             users[user.uid] = { ...users[user.uid], ...updates };
@@ -258,10 +368,11 @@ export const checkAchievements = createAsyncThunk(
                     if (user.coins >= ach.threshold) unlocked = true;
                     break;
                 case 'xp':
-                     // Pseudo check for level based on XP logic implies user.level
-                     // Let's assume some achievements map directly to levels
                      if (ach.id === 'ach_lvl2' && user.level >= 2) unlocked = true;
                      if (ach.id === 'ach_lvl5' && user.level >= 5) unlocked = true;
+                     break;
+                case 'streak':
+                     if (ach.id === 'ach_streak7' && user.streakDays >= 7) unlocked = true;
                      break;
             }
 
@@ -274,16 +385,10 @@ export const checkAchievements = createAsyncThunk(
         });
 
         if (newUnlocked.length > 0) {
-            // Give rewards without triggering infinite loop
-            // We directly update state via a special internal update or just simple update
-            // Ideally we'd call addExperience but that calls checkAchievements... 
-            // So we manually construct update
-            
             const finalXp = user.currentXp + totalRewardXp;
             const finalCoins = user.coins + totalRewardCoins;
             const finalAchList = [...user.achievements, ...newUnlocked];
             
-            // Simple update to DB
             const users = getLocalUsers();
             if (user.uid && users[user.uid]) {
                  users[user.uid] = { 
@@ -305,7 +410,6 @@ export const checkAchievements = createAsyncThunk(
     }
 );
 
-// Import logic same as before...
 export const importSaveData = createAsyncThunk('user/import', async (json: string) => {
     const data = JSON.parse(json);
     const users = getLocalUsers();
@@ -343,7 +447,13 @@ const userSlice = createSlice({
          state.currentUser.surveyHistory.push(action.payload);
          saveUser(state.currentUser);
        }
-    } 
+    },
+    setThemeColor: (state, action: PayloadAction<ThemeColor>) => {
+       if (state.currentUser) {
+         state.currentUser.themeColor = action.payload;
+         saveUser(state.currentUser);
+       }
+    }
   },
   extraReducers: (builder) => {
     builder
@@ -363,6 +473,11 @@ const userSlice = createSlice({
              state.currentUser = { ...state.currentUser, ...action.payload as any };
              saveUser(state.currentUser);
          }
+      })
+      .addCase(startQuestAction.fulfilled, (state, action) => {
+          if (state.currentUser && action.payload) {
+              state.currentUser = { ...state.currentUser, ...action.payload };
+          }
       })
       .addCase(completeQuestAction.fulfilled, (state, action) => {
           if (state.currentUser && action.payload) {
@@ -387,5 +502,5 @@ const userSlice = createSlice({
   }
 });
 
-export const { setUser, clearUser, purchaseItem, equipSkin, submitSurvey } = userSlice.actions;
+export const { setUser, clearUser, purchaseItem, equipSkin, submitSurvey, setThemeColor } = userSlice.actions;
 export default userSlice.reducer;

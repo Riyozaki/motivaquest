@@ -3,13 +3,16 @@ import { useSelector, useDispatch } from 'react-redux';
 import { RootState, AppDispatch } from '../store';
 import { Quest, QuestCategory, QuestRarity } from '../types';
 import { fetchQuests } from '../store/questsSlice';
-import { Coins, Star, Brain, BookOpen, Dumbbell, Sparkles, Hourglass, Users, Loader2, Sword, Scroll, Shield } from 'lucide-react';
+import { Coins, Star, Brain, BookOpen, Dumbbell, Sparkles, Hourglass, Users, Loader2, Sword, Scroll, Shield, Leaf, Heart, Globe, DollarSign, Laptop } from 'lucide-react';
 import QuestModal from '../components/QuestModal';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useAuth } from '../context/AuthContext';
+import { Link } from 'react-router-dom';
 
 const Quests: React.FC = () => {
   const dispatch = useDispatch<AppDispatch>();
   const { list: quests, status } = useSelector((state: RootState) => state.quests);
+  const { user } = useAuth();
   
   const [selectedQuest, setSelectedQuest] = useState<Quest | null>(null);
   const [activeCategory, setActiveCategory] = useState<QuestCategory | 'All'>('All');
@@ -19,6 +22,11 @@ const Quests: React.FC = () => {
       dispatch(fetchQuests());
     }
   }, [status, dispatch]);
+
+  if (!user) return null;
+
+  // Use all quests as they are universal now
+  const gradeQuests = quests;
 
   const getRarityStyles = (rarity: QuestRarity) => {
     switch (rarity) {
@@ -53,9 +61,16 @@ const Quests: React.FC = () => {
     switch (category) {
       case 'Sport': return <Dumbbell className="h-4 w-4" />;
       case 'Math': return <Brain className="h-4 w-4" />;
-      case 'Lang': return <Sparkles className="h-4 w-4" />;
-      case 'History': return <Scroll className="h-4 w-4" />;
-      case 'Science': return <BookOpen className="h-4 w-4" />;
+      case 'Lang': return <Globe className="h-4 w-4" />;
+      case 'Russian': return <Scroll className="h-4 w-4" />;
+      case 'Literature': return <BookOpen className="h-4 w-4" />;
+      case 'History': return <Hourglass className="h-4 w-4" />;
+      case 'Science': return <Sparkles className="h-4 w-4" />;
+      case 'Ecology': return <Leaf className="h-4 w-4" />;
+      case 'Social': return <Users className="h-4 w-4" />;
+      case 'Self': return <Heart className="h-4 w-4" />;
+      case 'Finance': return <DollarSign className="h-4 w-4" />;
+      case 'IT': return <Laptop className="h-4 w-4" />;
       default: return <Star className="h-4 w-4" />;
     }
   };
@@ -63,18 +78,24 @@ const Quests: React.FC = () => {
   const categories: {id: QuestCategory | 'All', label: string}[] = [
     { id: 'All', label: 'Все' },
     { id: 'Math', label: 'Математика' },
+    { id: 'Russian', label: 'Русский' },
+    { id: 'Literature', label: 'Литература' },
+    { id: 'Lang', label: 'Языки' },
     { id: 'Science', label: 'Наука' },
     { id: 'History', label: 'История' },
-    { id: 'Lang', label: 'Языки' },
-    { id: 'Sport', label: 'Тело' },
+    { id: 'Sport', label: 'Здоровье' },
+    { id: 'Social', label: 'Социум' },
+    { id: 'Ecology', label: 'Экология' },
+    { id: 'Self', label: 'Развитие' },
   ];
 
   const filteredQuests = activeCategory === 'All' 
-    ? quests 
-    : quests.filter(q => q.category === activeCategory);
+    ? gradeQuests 
+    : gradeQuests.filter(q => q.category === activeCategory);
 
   const sortedQuests = [...filteredQuests].sort((a, b) => {
     if (a.completed === b.completed) {
+      // Sort Legendary (Gold) first, then Rare (Blue)
       const rarityOrder = { 'Legendary': 4, 'Epic': 3, 'Rare': 2, 'Common': 1 };
       return rarityOrder[b.rarity] - rarityOrder[a.rarity];
     }
@@ -98,7 +119,9 @@ const Quests: React.FC = () => {
             <h1 className="text-3xl font-bold text-white rpg-font tracking-wide">
                 <span className="text-purple-500">Доска</span> Миссий
             </h1>
-            <p className="text-slate-400 text-sm mt-1">Выбирай мудро, герой.</p>
+            <p className="text-slate-400 text-sm mt-1">
+                Все доступные задания
+            </p>
         </div>
         
         <div className="flex gap-2 mt-4 md:mt-0 overflow-x-auto pb-2 md:pb-0 w-full md:w-auto scrollbar-hide">
@@ -120,6 +143,11 @@ const Quests: React.FC = () => {
 
       {status === 'loading' ? (
          <div className="flex justify-center py-20"><Loader2 className="animate-spin text-purple-500 h-12 w-12" /></div>
+      ) : sortedQuests.length === 0 ? (
+        <div className="text-center py-20 bg-slate-900/50 rounded-2xl border border-dashed border-slate-700">
+             <h3 className="text-xl text-slate-300 font-bold mb-4">Заданий пока нет</h3>
+             <p className="text-slate-500">Попробуй сменить фильтр или загляни позже.</p>
+        </div>
       ) : (
         <motion.div 
             layout
@@ -147,7 +175,7 @@ const Quests: React.FC = () => {
                   <div className="relative z-10 p-5 h-full flex flex-col">
                       <div className="flex justify-between items-start mb-3">
                           <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded border ${styles.border} ${styles.text} bg-slate-950/50`}>
-                              {quest.rarity}
+                              {quest.rarity === 'Rare' ? 'Редкий' : quest.rarity === 'Epic' ? 'Эпик' : quest.rarity === 'Legendary' ? 'Легенда' : 'Обычный'}
                           </span>
                           {quest.type === 'daily' && <Hourglass className="h-4 w-4 text-slate-500" />}
                       </div>

@@ -74,8 +74,10 @@ const initialState: RewardsState = {
     { id: 'ach_c500', title: 'Казначей', description: 'Накопи 500 монет', icon: 'Coins', conditionType: 'coins', threshold: 500, rewardXp: 200, rewardCoins: 0 },
     { id: 'ach_c1000', title: 'Золотой Дракон', description: 'Накопи 1000 монет', icon: 'Coins', conditionType: 'coins', threshold: 1000, rewardXp: 500, rewardCoins: 0 },
     
-    { id: 'ach_lvl2', title: 'Пробуждение Силы', description: 'Достигни 2 уровня', icon: 'Zap', conditionType: 'xp', threshold: 200, rewardXp: 0, rewardCoins: 50 }, // Threshold is pseudo here, logic handles levels
+    { id: 'ach_lvl2', title: 'Пробуждение Силы', description: 'Достигни 2 уровня', icon: 'Zap', conditionType: 'xp', threshold: 200, rewardXp: 0, rewardCoins: 50 },
     { id: 'ach_lvl5', title: 'Ветеран Класса', description: 'Достигни 5 уровня', icon: 'Zap', conditionType: 'xp', threshold: 2000, rewardXp: 0, rewardCoins: 150 },
+    
+    { id: 'ach_streak7', title: 'Чистюля', description: '7 дней подряд в игре', icon: 'Sparkles', conditionType: 'streak', threshold: 7, rewardXp: 500, rewardCoins: 200 },
   ]
 };
 
