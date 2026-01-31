@@ -79,6 +79,18 @@ export interface SurveySubmission {
   enjoymentScore: number;
 }
 
+export interface StoryDay {
+  day: number;
+  title: string;
+  locationId: 'village' | 'forest' | 'mountains' | 'castle' | 'desert' | 'throne';
+  locationName: string;
+  description: string;
+  character: 'wizard' | 'fairy' | 'warrior' | 'king';
+  dialogue: string;
+  questIds: number[];
+  rewardText: string;
+}
+
 export interface UserProfile {
   uid?: string;
   username: string;
@@ -107,6 +119,13 @@ export interface UserProfile {
   penaltyUntil?: number; // timestamp until penalties apply
   streakDays: number;
   lastLoginDate?: string;
+
+  // Story Mode
+  campaign: {
+    currentDay: number;
+    isDayComplete: boolean; // Ready to advance
+    unlockedAllies: string[];
+  };
 }
 
 export interface LeaderboardUser {

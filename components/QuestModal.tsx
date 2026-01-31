@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Modal from 'react-modal';
 import { Quest } from '../types';
-import { X, CheckCircle, AlertCircle, Coins, Star, Trophy, Volume2, StopCircle, Play, Clock, Heart, Check, MinusCircle, XCircle } from 'lucide-react';
+import { X, CheckCircle, AlertCircle, Coins, Star, Trophy, Volume2, StopCircle, Play, Clock, Heart, Check, MinusCircle, XCircle, Zap } from 'lucide-react';
 import { useDispatch, useSelector } from 'react-redux';
 import { completeQuestAction, startQuestAction } from '../store/userSlice';
 import { markQuestCompleted } from '../store/questsSlice';
@@ -30,6 +30,9 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose }) => {
 
   const startTime = quest && user?.activeQuestTimers ? user.activeQuestTimers[quest.id] : null;
   const isStarted = !!startTime;
+  
+  // Admin Check
+  const isAdmin = user?.role === 'admin' || user?.uid === 'demo_hero_id';
   
   // Calculate Time
   const [timeLeft, setTimeLeft] = useState(0);
@@ -99,7 +102,8 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose }) => {
   };
 
   const handleInitialCheck = () => {
-      if (timeLeft > 0) {
+      // Admin Bypass
+      if (timeLeft > 0 && !isAdmin) {
           toast.warning(`Не так быстро! Подожди ещё ${formatTime(timeLeft)}.`);
           return;
       }
@@ -179,8 +183,8 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose }) => {
                  <span className="bg-purple-500/20 text-purple-300 border border-purple-500/30 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest">{quest.category}</span>
                  <span className="bg-slate-700 text-slate-300 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest">{quest.rarity}</span>
                  {isStarted && timeLeft > 0 && (
-                     <span className="bg-amber-900/40 text-amber-400 border border-amber-500/30 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest flex items-center animate-pulse">
-                         <Clock size={10} className="mr-1"/> {formatTime(timeLeft)}
+                     <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest flex items-center ${isAdmin ? 'bg-red-900/40 text-red-400 border border-red-500/30' : 'bg-amber-900/40 text-amber-400 border border-amber-500/30 animate-pulse'}`}>
+                         <Clock size={10} className="mr-1"/> {isAdmin ? 'Timer Bypass' : formatTime(timeLeft)}
                      </span>
                  )}
                  {isStarted && timeLeft === 0 && !completed && !quest.completed && (
@@ -335,13 +339,13 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose }) => {
                 <button 
                    onClick={handleInitialCheck} 
                    className={`w-full md:w-auto px-8 py-3 rounded-xl font-bold text-white transition-all shadow-lg
-                       ${timeLeft > 0 
+                       ${timeLeft > 0 && !isAdmin
                            ? 'bg-slate-700 text-slate-400 cursor-not-allowed' 
                            : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:shadow-emerald-600/30 hover:scale-105 active:scale-95'
                        }
                    `}
                 >
-                    {timeLeft > 0 ? `Подожди: ${formatTime(timeLeft)}` : 'Отметить как готовое'}
+                    {timeLeft > 0 && isAdmin ? <><Zap size={16} className="inline mr-2" /> Force Complete</> : timeLeft > 0 ? `Подожди: ${formatTime(timeLeft)}` : 'Отметить как готовое'}
                 </button>
             </div>
         )}

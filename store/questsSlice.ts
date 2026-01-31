@@ -1,5 +1,5 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
-import { Quest, QuestRarity } from '../types';
+import { Quest, QuestRarity, StoryDay } from '../types';
 
 interface QuestsState {
   list: Quest[];
@@ -23,6 +23,181 @@ const getMinMinutes = (rarity: QuestRarity): number => {
         default: return 1;
     }
 };
+
+// --- HELPER: Get Game Day String (Switch at 06:00 MSK) ---
+const getGameDayString = () => {
+    const now = new Date();
+    // Get UTC time in ms
+    const utcTime = now.getTime() + (now.getTimezoneOffset() * 60000);
+    // Add 3 hours for MSK
+    const mskTime = new Date(utcTime + (3 * 3600000));
+
+    // If it's before 6:00 AM MSK, it still belongs to the "previous" game day
+    if (mskTime.getHours() < 6) {
+        mskTime.setDate(mskTime.getDate() - 1);
+    }
+    
+    // Return unique string for this game day (e.g. "Mon Jan 01 2024")
+    return mskTime.toDateString();
+};
+
+// --- STORY CAMPAIGN DATA (14 DAYS) ---
+export const CAMPAIGN_DATA: StoryDay[] = [
+    {
+        day: 1,
+        title: "Пробуждение Героя",
+        locationId: 'village',
+        locationName: "Деревня Новичков",
+        description: "Тень Лени поглотила мир. Волшебник призывает тебя!",
+        character: 'wizard',
+        dialogue: "Здравствуй, Избранный! Мир спит, только ты можешь разбудить героев. Начни с малого — приведи в порядок свой штаб.",
+        questIds: [5, 2, 22], // Clean desk, Pack bag, Water
+        rewardText: "+50 XP, Начало Пути"
+    },
+    {
+        day: 2,
+        title: "Первая Тренировка",
+        locationId: 'village',
+        locationName: "Деревня Новичков",
+        description: "Герой должен быть сильным телом и духом.",
+        character: 'wizard',
+        dialogue: "Твоя сила растёт! Но Тень близко. Укрепи тело и дух перед походом в Лес.",
+        questIds: [36, 4, 29], // Squats, Schedule, Thank you
+        rewardText: "Бонус Стрика"
+    },
+    {
+        day: 3,
+        title: "Разбуди Стража Леса",
+        locationId: 'forest',
+        locationName: "Лес Математики",
+        description: "Деревья шепчут уравнения. Реши их!",
+        character: 'fairy',
+        dialogue: "Привет! Я Дух Мотивации! Лес заколдован цифрами. Помоги мне, и я дам тебе свою силу!",
+        questIds: [51, 33, 56], // Speed math, Tables, Math HW
+        rewardText: "Разблокирован Дух Мотивации"
+    },
+    {
+        day: 4,
+        title: "Очистка Тропы",
+        locationId: 'forest',
+        locationName: "Лес Математики",
+        description: "Заросли знаний требуют ухода.",
+        character: 'fairy',
+        dialogue: "Смотри, сколько мусора на тропе знаний! Давай наведем порядок, чтобы мысли текли свободно.",
+        questIds: [21, 73, 64], // Dishes, Read 10 pages, Notes
+        rewardText: "Скин: Лесной Воин"
+    },
+    {
+        day: 5,
+        title: "Битва с Гоблинами",
+        locationId: 'forest',
+        locationName: "Лес Математики",
+        description: "Ленивые гоблины мешают учиться!",
+        character: 'wizard',
+        dialogue: "Гоблины Прокрастинации атакуют! Используй мощь сложных задач, чтобы изгнать их!",
+        questIds: [75, 74, 93], // Math practice, Theorem, Full room clean (Epic)
+        rewardText: "1-й Кристалл Знаний"
+    },
+    {
+        day: 6,
+        title: "Подъем на Вершину",
+        locationId: 'mountains',
+        locationName: "Горы Физики",
+        description: "Гравитация здесь сильнее. Нужно усилие.",
+        character: 'wizard',
+        dialogue: "Мы в Горах Физики. Здесь каждое движение требует энергии. Зарядись!",
+        questIds: [58, 69, 38], // Physics HW, Exercise, Walk
+        rewardText: "Зелье Скорости"
+    },
+    {
+        day: 7,
+        title: "Спаси Воина",
+        locationId: 'mountains',
+        locationName: "Горы Физики",
+        description: "Воин Дисциплины зажат камнями!",
+        character: 'warrior',
+        dialogue: "Эй! Помоги выбраться! Мне нужна твоя дисциплина, чтобы разбить эти камни лени!",
+        questIds: [82, 48, 87], // Physics problems (Epic), Laws, Sleep early
+        rewardText: "Разблокирован Воин Дисциплины"
+    },
+    {
+        day: 8,
+        title: "Лавина Лени",
+        locationId: 'mountains',
+        locationName: "Горы Физики",
+        description: "Удержись на ногах под напором дел.",
+        character: 'warrior',
+        dialogue: "Лавина сходит! Пей воду и держи ритм, иначе нас снесет!",
+        questIds: [89, 42, 96], // Water 2L (Epic), Stretch, All HW (Legendary - optional replaced by smaller tasks in logic if too hard, keeping hard for lore)
+        rewardText: "2-й Кристалл Знаний"
+    },
+    {
+        day: 9,
+        title: "Освободи Призраков",
+        locationId: 'castle',
+        locationName: "Замок Истории",
+        description: "Прошлое забыто. Вспомни его.",
+        character: 'wizard',
+        dialogue: "В этом замке живут призраки забытых дат. Верни им память, чтобы пройти дальше.",
+        questIds: [79, 61, 84], // Dates, History HW, Retell episode
+        rewardText: "Щит Мудрости"
+    },
+    {
+        day: 10,
+        title: "Тайны Башен",
+        locationId: 'castle',
+        locationName: "Замок Истории",
+        description: "Литература — ключ к магии слов.",
+        character: 'warrior',
+        dialogue: "Слова — это оружие. Выучи стих, и твой голос станет громче грома!",
+        questIds: [63, 85, 72], // Read Lit, Poem (Epic), Gratitude
+        rewardText: "Свиток Лидера"
+    },
+    {
+        day: 11,
+        title: "Штурм Трона",
+        locationId: 'castle',
+        locationName: "Замок Истории",
+        description: "Подготовься к решающему рывку.",
+        character: 'fairy',
+        dialogue: "Мы почти у цели! Собери все знания в кулак. Нам нужен идеальный план.",
+        questIds: [64, 66, 95], // Notes, Answer teacher, Full lesson repeat (Epic)
+        rewardText: "3-й Кристалл Знаний"
+    },
+    {
+        day: 12,
+        title: "Оазис Знаний",
+        locationId: 'desert',
+        locationName: "Пустыня Биологии",
+        description: "Жизнь есть даже в песках.",
+        character: 'fairy',
+        dialogue: "В Пустыне Биологии жарко. Найди оазис жизни и изучи его обитателей.",
+        questIds: [60, 83, 90], // Bio HW, Draw scheme (Epic), Healthy lunch
+        rewardText: "Бонус Здоровья"
+    },
+    {
+        day: 13,
+        title: "Буря Теней",
+        locationId: 'desert',
+        locationName: "Пустыня Биологии",
+        description: "Тень сопротивляется перед финалом.",
+        character: 'warrior',
+        dialogue: "Финал близко! Тень насылает бурю. Закрой все долги, чтобы щит выдержал!",
+        questIds: [47, 100, 98], // Bio terms, All overdue HW (Legendary), Sport day (Legendary)
+        rewardText: "4-й Кристалл Знаний"
+    },
+    {
+        day: 14,
+        title: "Финальный Босс",
+        locationId: 'throne',
+        locationName: "Трон Лени",
+        description: "Победи Короля Лени навсегда!",
+        character: 'king',
+        dialogue: "Ты дошел... Но сможешь ли ты сделать ВСЁ сразу? Я — твоя лень, и я бесконечен!",
+        questIds: [96, 99, 97], // All HW, Organize day, Read 50 pages (All Legendary)
+        rewardText: "5-й Кристалл. ТЫ — ЛЕГЕНДА!"
+    }
+];
 
 // Raw Quest Data
 const rawQuests: Omit<Quest, 'minMinutes'>[] = [
@@ -141,8 +316,7 @@ const initialQuests: Quest[] = rawQuests.map(q => ({
 }));
 
 export const fetchQuests = createAsyncThunk('quests/fetchQuests', async () => {
-  const now = new Date();
-  const todayDateString = now.toDateString(); 
+  const currentGameDay = getGameDayString();
   
   const storedProgress = localStorage.getItem(STORAGE_KEY_QUESTS);
   const lastResetDate = localStorage.getItem(STORAGE_KEY_RESET_DATE);
@@ -153,9 +327,9 @@ export const fetchQuests = createAsyncThunk('quests/fetchQuests', async () => {
   }
 
   let needsReset = false;
-  if (lastResetDate !== todayDateString) {
+  if (lastResetDate !== currentGameDay) {
     needsReset = true;
-    localStorage.setItem(STORAGE_KEY_RESET_DATE, todayDateString);
+    localStorage.setItem(STORAGE_KEY_RESET_DATE, currentGameDay);
   }
 
   const quests = initialQuests.map(q => {

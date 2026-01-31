@@ -102,6 +102,11 @@ const Profile: React.FC = () => {
   }, [user, questsList]);
 
   // --- Chart Options ---
+  const primaryColorHex = useMemo(() => {
+      const theme = THEMES.find(t => t.id === user?.themeColor);
+      return theme ? theme.color : '#8b5cf6';
+  }, [user?.themeColor]);
+
   const commonOptions: ChartOptions<'bar' | 'line'> = {
     responsive: true,
     maintainAspectRatio: false,
@@ -111,7 +116,7 @@ const Profile: React.FC = () => {
             backgroundColor: 'rgba(15, 23, 42, 0.9)',
             titleColor: '#f1f5f9',
             bodyColor: '#cbd5e1',
-            borderColor: 'rgba(var(--color-primary-500), 0.3)',
+            borderColor: primaryColorHex,
             borderWidth: 1,
             padding: 10,
             cornerRadius: 8,
@@ -134,11 +139,11 @@ const Profile: React.FC = () => {
       datasets: [{
           label: 'Выполнено квестов',
           data: statsData.quests,
-          backgroundColor: 'rgba(var(--color-primary-500), 0.6)', 
-          borderColor: 'rgba(var(--color-primary-600), 1)',
+          backgroundColor: primaryColorHex, // Solid HEX color fixes the black bar issue
+          borderColor: primaryColorHex,
           borderWidth: 1,
           borderRadius: 6,
-          hoverBackgroundColor: 'rgba(var(--color-primary-400), 1)'
+          hoverBackgroundColor: '#ffffff'
       }]
   };
 

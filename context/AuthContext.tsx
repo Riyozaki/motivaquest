@@ -5,6 +5,7 @@ import { UserProfile } from '../types';
 import { clearUser, initAuth, logoutLocal } from '../store/userSlice';
 import { RootState, AppDispatch } from '../store';
 import { toast } from 'react-toastify';
+import { analytics } from '../services/analytics';
 
 interface AuthContextType {
   user: UserProfile | null;
@@ -55,7 +56,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return () => clearInterval(interval);
   }, [userProfile]);
 
+  const trackSessionEnd = (reason: 'logout' | 'timeout') => {
+      const timeSpentSeconds = SESSION_DURATION - timeRemaining;
+      const timeSpentMinutes = Math.floor(timeSpentSeconds / 60);
+      analytics.track('session_end', userProfile, { reason, durationMinutes: timeSpentMinutes });
+  };
+
   const handleSessionExpiry = () => {
+    trackSessionEnd('timeout');
     toast.error("Игровое время истекло! Сделай перерыв.", {
       position: "top-center",
       autoClose: false,
@@ -67,6 +75,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const logout = async () => {
+    if (userProfile) {
+        trackSessionEnd('logout');
+    }
     await dispatch(logoutLocal());
     dispatch(clearUser());
   };

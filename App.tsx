@@ -10,6 +10,8 @@ import Quests from './pages/Quests';
 import Rewards from './pages/Rewards';
 import Leaderboard from './pages/Leaderboard';
 import Admin from './pages/Admin';
+import AdminControls from './components/AdminControls';
+import DailyRewardModal from './components/DailyRewardModal';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { ToastContainer, toast } from 'react-toastify';
@@ -38,7 +40,7 @@ const THEME_COLORS: Record<ThemeColor, Record<number, string>> = {
      500: '#f43f5e', 600: '#e11d48', 700: '#be123c', 800: '#9f1239', 900: '#881337', 950: '#4c0519'
   },
   amber: {
-     50: '#fffbeb', 100: '#fef3c7', 200: '#fde68a', 300: '#fcd34d', 400: '#fbbf24',
+     50: '#fffbeb', 100: '#fef3c7', 200: '#fde68a', 300: '#fcd34d', 400: '#fb7185',
      500: '#f59e0b', 600: '#d97706', 700: '#b45309', 800: '#92400e', 900: '#78350f', 950: '#451a03'
   }
 };
@@ -169,6 +171,9 @@ const AppContent: React.FC = () => {
         <AnimatedRoutes />
       </main>
       
+      <DailyRewardModal />
+      <AdminControls />
+
       <footer className="py-8 text-center text-sm text-slate-500 border-t border-slate-800/50 backdrop-blur-sm">
         <p className="rpg-font text-slate-400">MotivaQuest &copy; {new Date().getFullYear()}</p>
         <p className="text-xs mt-2">Forged with magic & code</p>

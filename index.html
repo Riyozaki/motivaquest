@@ -201,10 +201,21 @@
     "react-chartjs-2": "https://esm.sh/react-chartjs-2@5.2.0?deps=react@18.2.0,chart.js@4.4.1",
     "react-joyride": "https://esm.sh/react-joyride@2.7.2?deps=react@18.2.0,react-dom@18.2.0",
     "react-modal": "https://esm.sh/react-modal@3.16.1?deps=react@18.2.0,react-dom@18.2.0",
-    "react/": "https://esm.sh/react@^19.2.4/",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.4/"
+    "canvas-confetti": "https://esm.sh/canvas-confetti@1.9.2",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
+    "react/": "https://esm.sh/react@^19.2.4/"
   }
 }
+</script>
+<script type="module">
+  // Shim for environments expecting global React/jsxRuntime
+  import React from 'react';
+  import ReactDOM from 'react-dom/client';
+  import * as jsxRuntime from 'react/jsx-runtime';
+  
+  window.React = React;
+  window.ReactDOM = ReactDOM;
+  window.jsxRuntime = jsxRuntime;
 </script>
 </head>
   <body>
@@ -218,5 +229,6 @@
          <div class="star" style="top: 90%; left: 90%; --duration: 4s; --delay: 0s;"></div>
     </div>
     <div id="root"></div>
+    <script type="module" src="./index.tsx"></script>
   </body>
 </html>
