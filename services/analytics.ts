@@ -1,7 +1,7 @@
 
 import { UserProfile } from '../types';
 
-const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyBRHre4A6Ag2XTdEy8asNzoBEloOhl3NvTUHEM1Z74SMuS2YfjryEwzN1p3_NSnf1bwA/exec';
+const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyibXkrpjTcaGb23jx_WosICwTx3jL8RYGYayNh3ypi6Vaz2nRUaKVTuhb1oEAFELgTJw/exec';
 
 interface AnalyticsEvent {
   timestamp: string;
@@ -36,7 +36,7 @@ class AnalyticsService {
       const event: AnalyticsEvent = {
         timestamp: new Date().toISOString(),
         eventType,
-        userId: user?.uid || 'anonymous',
+        userId: user?.email || user?.uid || 'anonymous', // Changed to prefer email for sheets
         username: user?.username || 'Guest',
         details: JSON.stringify(data),
       };
@@ -60,26 +60,24 @@ class AnalyticsService {
     this.queue = []; // Очищаем очередь
 
     try {
-      // Google Apps Script принимает POST запросы.
-      // Используем no-cors для fire-and-forget, так как нам не важен ответ,
-      // и это решает проблемы с CORS в браузере при отправке на script.google.com.
-      
-      // Отправляем каждый ивент или батч. 
-      // Простой вариант для GAS: отправляем батч как одну строку.
-      const payload = JSON.stringify(batch);
+      // Используем action='analytics' если скрипт это поддерживает, или просто отправляем массив
+      // Так как структура скрипта изменилась, лучше обернуть в стандартный формат API
+      const payload = JSON.stringify({
+        action: 'analyticsBatch',
+        events: batch
+      });
 
       await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         mode: 'no-cors', 
         headers: {
-          'Content-Type': 'text/plain', // Важно для избежания preflight OPTIONS запроса
+          'Content-Type': 'text/plain', 
         },
         body: payload,
       });
 
     } catch (error) {
       console.warn('Failed to send analytics batch:', error);
-      // Опционально: вернуть в очередь при ошибке сети, но для "тихой" аналитики можно пропустить
     } finally {
       this.isProcessing = false;
     }

@@ -1,3 +1,4 @@
+
 export interface Task {
   id: number;
   question: string;
@@ -119,6 +120,7 @@ export interface UserProfile {
   penaltyUntil?: number; // timestamp until penalties apply
   streakDays: number;
   lastLoginDate?: string;
+  streakTakenToday: boolean;
 
   // Story Mode
   campaign: {

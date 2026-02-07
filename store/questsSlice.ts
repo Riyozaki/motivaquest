@@ -1,5 +1,7 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import { Quest, QuestRarity, StoryDay } from '../types';
+import { api } from '../services/api';
+import { RootState } from './index';
 
 interface QuestsState {
   list: Quest[];
@@ -8,7 +10,6 @@ interface QuestsState {
   lastResetDate: string | null;
 }
 
-const STORAGE_KEY_QUESTS = 'motiva_quests_progress';
 const STORAGE_KEY_RESET_DATE = 'motiva_quests_reset_date';
 
 // Helper to create task
@@ -22,23 +23,6 @@ const getMinMinutes = (rarity: QuestRarity): number => {
         case 'Legendary': return 30; // 30 min
         default: return 1;
     }
-};
-
-// --- HELPER: Get Game Day String (Switch at 06:00 MSK) ---
-const getGameDayString = () => {
-    const now = new Date();
-    // Get UTC time in ms
-    const utcTime = now.getTime() + (now.getTimezoneOffset() * 60000);
-    // Add 3 hours for MSK
-    const mskTime = new Date(utcTime + (3 * 3600000));
-
-    // If it's before 6:00 AM MSK, it still belongs to the "previous" game day
-    if (mskTime.getHours() < 6) {
-        mskTime.setDate(mskTime.getDate() - 1);
-    }
-    
-    // Return unique string for this game day (e.g. "Mon Jan 01 2024")
-    return mskTime.toDateString();
 };
 
 // --- STORY CAMPAIGN DATA (14 DAYS) ---
@@ -257,7 +241,7 @@ const rawQuests: Omit<Quest, 'minMinutes'>[] = [
     { id: 53, title: "Каллиграфия", description: "Переписать конспект урока красиво", category: "Self", difficulty: "Easy", rarity: "Common", xp: 15, coins: 10, completed: false, type: "daily", tasks: t() },
     { id: 54, title: "Любопытство", description: "Подготовить 5 вопросов к учителю по теме", category: "Self", difficulty: "Easy", rarity: "Common", xp: 15, coins: 10, completed: false, type: "daily", tasks: t() },
     { id: 55, title: "Микро-Цель", description: "Записать одну маленькую цель на завтра", category: "Self", difficulty: "Easy", rarity: "Common", xp: 15, coins: 10, completed: false, type: "daily", tasks: t() },
-
+    
     // --- RARE (56-80) ---
     { id: 56, title: "ДЗ: Математика", description: "Сделать домашнее задание по математике", category: "Math", difficulty: "Medium", rarity: "Rare", xp: 30, coins: 20, completed: false, type: "daily", tasks: t() },
     { id: 57, title: "ДЗ: Русский", description: "Сделать домашнее задание по русскому языку", category: "Russian", difficulty: "Medium", rarity: "Rare", xp: 30, coins: 20, completed: false, type: "daily", tasks: t() },
@@ -315,31 +299,42 @@ const initialQuests: Quest[] = rawQuests.map(q => ({
     minMinutes: getMinMinutes(q.rarity)
 }));
 
-export const fetchQuests = createAsyncThunk('quests/fetchQuests', async () => {
-  const currentGameDay = getGameDayString();
+export const fetchQuests = createAsyncThunk('quests/fetchQuests', async (_, { getState }) => {
+  const state = getState() as RootState;
+  const user = state.user.currentUser;
   
-  const storedProgress = localStorage.getItem(STORAGE_KEY_QUESTS);
-  const lastResetDate = localStorage.getItem(STORAGE_KEY_RESET_DATE);
-  
-  let parsedProgress: Record<number, boolean> = {};
-  if (storedProgress) {
-      parsedProgress = JSON.parse(storedProgress);
-  }
-
-  let needsReset = false;
-  if (lastResetDate !== currentGameDay) {
-    needsReset = true;
-    localStorage.setItem(STORAGE_KEY_RESET_DATE, currentGameDay);
-  }
-
   const quests = initialQuests.map(q => {
-    let isCompleted = !!parsedProgress[q.id];
-    
-    if (q.type === 'daily' && needsReset) {
-      isCompleted = false;
-      if (parsedProgress[q.id]) {
-        delete parsedProgress[q.id];
-      }
+    let isCompleted = false;
+    let isOnCooldown = false;
+
+    // Check completion against user's history
+    if (user && user.questHistory) {
+        // Filter history for this quest ID
+        // Sort by date descending (newest first)
+        const history = user.questHistory
+            .filter(h => h.questId === q.id)
+            .sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        
+        if (history.length > 0) {
+            const lastCompletion = new Date(history[0].date);
+            const now = new Date();
+
+            if (q.type === 'story') {
+                // Story quests are one-time
+                isCompleted = true;
+            } else if (q.type === 'daily') {
+                // Check 24 hour cooldown
+                const diffMs = now.getTime() - lastCompletion.getTime();
+                const hoursSinceCompletion = diffMs / (1000 * 60 * 60);
+                
+                if (hoursSinceCompletion < 24) {
+                    isCompleted = true; // Still completed/cooldown
+                    isOnCooldown = true;
+                } else {
+                    isCompleted = false; // Available again
+                }
+            }
+        }
     }
 
     return {
@@ -348,21 +343,11 @@ export const fetchQuests = createAsyncThunk('quests/fetchQuests', async () => {
     };
   });
 
-  if (needsReset) {
-    localStorage.setItem(STORAGE_KEY_QUESTS, JSON.stringify(parsedProgress));
-  }
-
   return quests;
 });
 
 export const markQuestCompleted = createAsyncThunk('quests/complete', async (questId: number) => {
-  const storedProgress = localStorage.getItem(STORAGE_KEY_QUESTS);
-  let parsedProgress: Record<number, boolean> = {};
-  if (storedProgress) parsedProgress = JSON.parse(storedProgress);
-  
-  parsedProgress[questId] = true;
-  localStorage.setItem(STORAGE_KEY_QUESTS, JSON.stringify(parsedProgress));
-
+  // Optimistic update
   return questId;
 });
 
@@ -371,6 +356,7 @@ const questsSlice = createSlice({
   initialState: { list: [], status: 'idle', error: null, lastResetDate: null } as QuestsState,
   reducers: {
     resetDailyQuests: (state) => {
+      // Manual reset trigger if needed
       state.list.forEach(q => {
         if (q.type === 'daily') q.completed = false;
       });

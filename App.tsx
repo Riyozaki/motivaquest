@@ -114,7 +114,7 @@ const AppContent: React.FC = () => {
         toast.success(`🎉 НОВЫЙ УРОВЕНЬ: ${user.level}!`, {
           position: "top-center",
           theme: "dark",
-          icon: "⚡"
+          icon: () => "⚡"
         });
       }
       prevLevelRef.current = user.level;

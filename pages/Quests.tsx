@@ -3,7 +3,7 @@ import { useSelector, useDispatch } from 'react-redux';
 import { RootState, AppDispatch } from '../store';
 import { Quest, QuestCategory, QuestRarity } from '../types';
 import { fetchQuests } from '../store/questsSlice';
-import { Coins, Star, Brain, BookOpen, Dumbbell, Sparkles, Hourglass, Users, Loader2, Sword, Scroll, Shield, Leaf, Heart, Globe, DollarSign, Laptop } from 'lucide-react';
+import { Coins, Star, Brain, BookOpen, Dumbbell, Sparkles, Hourglass, Users, Loader2, Sword, Scroll, Shield, Leaf, Heart, Globe, DollarSign, Laptop, Clock, ArrowRight } from 'lucide-react';
 import QuestModal from '../components/QuestModal';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
@@ -16,6 +16,7 @@ const Quests: React.FC = () => {
   
   const [selectedQuest, setSelectedQuest] = useState<Quest | null>(null);
   const [activeCategory, setActiveCategory] = useState<QuestCategory | 'All'>('All');
+  const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
     if (status === 'idle') {
@@ -23,10 +24,17 @@ const Quests: React.FC = () => {
     }
   }, [status, dispatch]);
 
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
   if (!user) return null;
 
-  // Use all quests as they are universal now
-  const gradeQuests = quests;
+  // Active Quests
+  const activeQuestIds = Object.keys(user.activeQuestTimers || {}).map(Number);
+  const activeQuests = quests.filter(q => activeQuestIds.includes(q.id) && !q.completed);
+  const activeCount = activeQuests.length;
 
   const getRarityStyles = (rarity: QuestRarity) => {
     switch (rarity) {
@@ -89,18 +97,27 @@ const Quests: React.FC = () => {
     { id: 'Self', label: 'Развитие' },
   ];
 
-  const filteredQuests = activeCategory === 'All' 
-    ? gradeQuests 
-    : gradeQuests.filter(q => q.category === activeCategory);
+  const filteredQuests = (activeCategory === 'All' 
+    ? quests 
+    : quests.filter(q => q.category === activeCategory)).filter(q => !activeQuestIds.includes(q.id));
 
   const sortedQuests = [...filteredQuests].sort((a, b) => {
     if (a.completed === b.completed) {
-      // Sort Legendary (Gold) first, then Rare (Blue)
       const rarityOrder = { 'Legendary': 4, 'Epic': 3, 'Rare': 2, 'Common': 1 };
       return rarityOrder[b.rarity] - rarityOrder[a.rarity];
     }
     return a.completed ? 1 : -1;
   });
+
+  const getTimeLeft = (q: Quest) => {
+      const start = user.activeQuestTimers[q.id];
+      const end = start + q.minMinutes * 60000;
+      const left = end - now;
+      if (left <= 0) return "Ready";
+      const m = Math.floor(left / 60000);
+      const s = Math.floor((left % 60000) / 1000);
+      return `${m}:${s.toString().padStart(2, '0')}`;
+  };
 
   return (
     <div className="space-y-8">
@@ -140,10 +157,43 @@ const Quests: React.FC = () => {
             ))}
         </div>
       </div>
+      
+      {/* Active Quests Section */}
+      {activeQuests.length > 0 && (
+          <div className="mb-8">
+              <div className="flex items-center gap-2 mb-4 text-slate-300 font-bold uppercase tracking-wider text-sm">
+                  <Clock size={16} className="text-amber-400" />
+                  В процессе ({activeCount}/3)
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {activeQuests.map(quest => (
+                       <motion.div
+                          key={quest.id}
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          onClick={() => setSelectedQuest(quest)}
+                          className="bg-slate-800/80 border border-amber-500/50 rounded-xl p-4 cursor-pointer relative overflow-hidden group hover:bg-slate-800 transition-colors"
+                       >
+                           <div className="absolute top-0 left-0 w-1 h-full bg-amber-500"></div>
+                           <div className="flex justify-between items-start mb-2">
+                               <h4 className="font-bold text-white truncate pr-2">{quest.title}</h4>
+                               <span className="text-xs font-mono font-bold text-amber-400 bg-amber-950/50 px-2 py-1 rounded">
+                                   {getTimeLeft(quest)}
+                               </span>
+                           </div>
+                           <div className="flex items-center justify-between text-xs text-slate-400 mt-2">
+                               <span>Награда: {quest.coins} 💰</span>
+                               <span className="flex items-center gap-1 text-emerald-400 group-hover:underline">Продолжить <ArrowRight size={12}/></span>
+                           </div>
+                       </motion.div>
+                  ))}
+              </div>
+          </div>
+      )}
 
       {status === 'loading' ? (
          <div className="flex justify-center py-20"><Loader2 className="animate-spin text-purple-500 h-12 w-12" /></div>
-      ) : sortedQuests.length === 0 ? (
+      ) : sortedQuests.length === 0 && activeQuests.length === 0 ? (
         <div className="text-center py-20 bg-slate-900/50 rounded-2xl border border-dashed border-slate-700">
              <h3 className="text-xl text-slate-300 font-bold mb-4">Заданий пока нет</h3>
              <p className="text-slate-500">Попробуй сменить фильтр или загляни позже.</p>
@@ -155,6 +205,7 @@ const Quests: React.FC = () => {
         >
           {sortedQuests.map((quest) => {
              const styles = getRarityStyles(quest.rarity);
+             const canStart = activeCount < 3;
              return (
                <motion.div
                   layout
@@ -163,10 +214,17 @@ const Quests: React.FC = () => {
                   whileHover={!quest.completed ? { scale: 1.03, y: -5 } : {}}
                   transition={{ duration: 0.2 }}
                   key={quest.id}
-                  onClick={() => !quest.completed && setSelectedQuest(quest)}
+                  onClick={() => {
+                      if (quest.completed) return;
+                      if (!canStart) {
+                          alert("Максимум 3 активных задания. Заверши текущие!");
+                          return;
+                      }
+                      setSelectedQuest(quest);
+                  }}
                   className={`
                     group relative overflow-hidden rounded-xl border-2 p-1 cursor-pointer transition-all duration-300
-                    ${styles.border} ${styles.glow} ${quest.completed ? 'opacity-50 grayscale' : ''}
+                    ${styles.border} ${styles.glow} ${quest.completed ? 'opacity-50 grayscale' : canStart ? '' : 'opacity-70'}
                   `}
                >
                   <div className={`absolute inset-0 opacity-80 backdrop-blur-md ${styles.bg}`}></div>

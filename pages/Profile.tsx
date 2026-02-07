@@ -1,9 +1,8 @@
 import React, { useState, useRef, useMemo } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { Award, Zap, Coins, CheckCircle, Sword, Edit2, Shield, Heart, Target, Sparkles, Map, Package, Crown, BookOpen, User, Download, Upload, Save, TrendingUp, Calendar, Palette, History, Share2 } from 'lucide-react';
+import { Award, Zap, Coins, CheckCircle, Sword, Edit2, Shield, Heart, Target, Sparkles, Map, Package, Save, TrendingUp, Calendar, Palette, History, Share2, Download, Upload, User } from 'lucide-react';
 import { RootState, AppDispatch } from '../store';
 import { updateUserProfile, equipSkin, importSaveData, setThemeColor } from '../store/userSlice';
-import Survey from '../components/Survey';
 import { motion } from 'framer-motion';
 import {
   Chart as ChartJS,
@@ -273,8 +272,6 @@ const Profile: React.FC = () => {
             </div>
         </div>
       </div>
-
-      <Survey />
 
       {/* Tabs */}
       <div className="glass-panel p-2 rounded-2xl flex overflow-x-auto gap-2 scrollbar-hide">

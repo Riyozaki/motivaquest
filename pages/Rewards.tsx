@@ -1,37 +1,65 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { RootState } from '../store';
 import { purchaseItem } from '../store/userSlice';
-import { Coins, ShoppingBag, Lock, Check, Zap, Target, Sparkles, Shield, Coffee, Gamepad2, Pizza } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { Coins, ShoppingBag, Lock, Check, Zap, Target, Sparkles, Shield, Coffee, Gamepad2, Pizza, X } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import confetti from 'canvas-confetti';
 
 const Rewards: React.FC = () => {
   const dispatch = useDispatch();
   const user = useSelector((state: RootState) => state.user.currentUser);
   const shopItems = useSelector((state: RootState) => state.rewards.shopItems);
+  const [purchasedItem, setPurchasedItem] = useState<{name: string, icon: string} | null>(null);
 
   if (!user) return null;
 
-  const handleBuy = (itemId: string, cost: number) => {
-    if (user.coins >= cost) {
-      dispatch(purchaseItem({ itemId, cost }));
+  const handleBuy = (item: any) => {
+    if (user.coins >= item.cost) {
+      dispatch(purchaseItem({ item: item }));
+      setPurchasedItem({ name: item.name, icon: item.icon });
+      confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 } });
     }
   };
 
-  const getIcon = (iconName: string) => {
+  const getIcon = (iconName: string, className = "h-8 w-8") => {
     switch (iconName) {
-      case 'Target': return <Target className="h-8 w-8 text-emerald-400" />;
-      case 'Sparkles': return <Sparkles className="h-8 w-8 text-purple-400" />;
-      case 'Shield': return <Shield className="h-8 w-8 text-blue-400" />;
-      case 'Coffee': return <Coffee className="h-8 w-8 text-amber-600" />;
-      case 'Gamepad2': return <Gamepad2 className="h-8 w-8 text-indigo-400" />;
-      case 'Pizza': return <Pizza className="h-8 w-8 text-orange-500" />;
-      default: return <ShoppingBag className="h-8 w-8 text-slate-400" />;
+      case 'Target': return <Target className={`${className} text-emerald-400`} />;
+      case 'Sparkles': return <Sparkles className={`${className} text-purple-400`} />;
+      case 'Shield': return <Shield className={`${className} text-blue-400`} />;
+      case 'Coffee': return <Coffee className={`${className} text-amber-600`} />;
+      case 'Gamepad2': return <Gamepad2 className={`${className} text-indigo-400`} />;
+      case 'Pizza': return <Pizza className={`${className} text-orange-500`} />;
+      default: return <ShoppingBag className={`${className} text-slate-400`} />;
     }
   };
 
   return (
-    <div className="max-w-6xl mx-auto space-y-8">
+    <div className="max-w-6xl mx-auto space-y-8 relative">
+      
+      {/* Purchase Modal */}
+      <AnimatePresence>
+          {purchasedItem && (
+              <motion.div 
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
+              >
+                  <motion.div 
+                    initial={{ scale: 0.8, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.8, opacity: 0 }}
+                    className="bg-slate-900 border-2 border-amber-500/50 rounded-3xl p-8 max-w-sm w-full text-center relative shadow-[0_0_50px_rgba(245,158,11,0.3)]"
+                  >
+                      <button onClick={() => setPurchasedItem(null)} className="absolute top-4 right-4 text-slate-500 hover:text-white"><X /></button>
+                      <div className="w-24 h-24 mx-auto bg-slate-800 rounded-full flex items-center justify-center mb-6 border-4 border-slate-700">
+                          {getIcon(purchasedItem.icon, "h-12 w-12")}
+                      </div>
+                      <h3 className="text-2xl font-bold text-white mb-2">Успешная покупка!</h3>
+                      <p className="text-slate-400 mb-6">Вы приобрели <span className="text-amber-400 font-bold">{purchasedItem.name}</span></p>
+                      <button onClick={() => setPurchasedItem(null)} className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 px-8 rounded-xl w-full">Отлично</button>
+                  </motion.div>
+              </motion.div>
+          )}
+      </AnimatePresence>
+
       {/* Wallet Header */}
       <motion.div 
         initial={{ y: -20, opacity: 0 }}
@@ -92,7 +120,7 @@ const Rewards: React.FC = () => {
                  </button>
                 ) : (
                   <button 
-                    onClick={() => handleBuy(item.id, item.cost)}
+                    onClick={() => handleBuy(item)}
                     disabled={!canAfford}
                     className={`w-full py-3 px-4 rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center space-x-2 transition-all ${
                       canAfford 

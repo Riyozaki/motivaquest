@@ -25,9 +25,7 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose }) => {
   const [taskResponses, setTaskResponses] = useState<{ [key: number]: 'yes' | 'partial' | 'no' | null }>({});
   const [completed, setCompleted] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
-  const [showAffirmation, setShowAffirmation] = useState(false); // Step between Task and Reward
-  const [rewardMultiplier, setRewardMultiplier] = useState(1);
-
+  
   const startTime = quest && user?.activeQuestTimers ? user.activeQuestTimers[quest.id] : null;
   const isStarted = !!startTime;
   
@@ -41,8 +39,6 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose }) => {
     if (isOpen && quest) {
       setTaskResponses({});
       setCompleted(false);
-      setShowAffirmation(false);
-      setRewardMultiplier(1);
     } else {
       window.speechSynthesis.cancel();
       setIsSpeaking(false);
@@ -101,7 +97,7 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose }) => {
       return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
 
-  const handleInitialCheck = () => {
+  const handleCompleteFlow = () => {
       // Admin Bypass
       if (timeLeft > 0 && !isAdmin) {
           toast.warning(`Не так быстро! Подожди ещё ${formatTime(timeLeft)}.`);
@@ -125,17 +121,11 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose }) => {
       // Check for partial
       const hasPartial = Object.values(taskResponses).includes('partial');
       const multiplier = hasPartial ? 0.5 : 1;
-      setRewardMultiplier(multiplier);
-
-      setShowAffirmation(true); // Go to affirmation step
-  };
-
-  const handleFinalComplete = () => {
+      
+      // Auto Complete
       setCompleted(true);
-      setTimeout(() => {
-        dispatch(markQuestCompleted(quest.id));
-        dispatch(completeQuestAction({ quest, multiplier: rewardMultiplier })); 
-      }, 500);
+      dispatch(markQuestCompleted(quest.id));
+      dispatch(completeQuestAction({ quest, multiplier })); 
   };
 
   return (
@@ -212,43 +202,20 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose }) => {
                       <Trophy size={48} className="md:w-16 md:h-16" />
                   </div>
                   <h3 className="text-2xl md:text-3xl font-bold text-white rpg-font mb-2">Победа!</h3>
-                  <p className="text-slate-400 mb-8">Ты стал мудрее. Награда твоя.</p>
+                  <p className="text-slate-400 mb-8">Ты стал мудрее. Награда получена!</p>
                   
                   <div className="flex justify-center gap-4 md:gap-6 mb-8">
                       <div className="bg-slate-800/80 px-4 md:px-6 py-3 rounded-xl border border-amber-500/30 flex items-center shadow-lg">
                           <Coins className="text-amber-400 mr-2 h-5 w-5 md:h-6 md:w-6" />
-                          <span className="font-bold text-lg md:text-xl text-white">+{Math.floor(quest.coins * rewardMultiplier)}</span>
+                          <span className="font-bold text-lg md:text-xl text-white">+{quest.coins}</span>
                       </div>
                       <div className="bg-slate-800/80 px-4 md:px-6 py-3 rounded-xl border border-purple-500/30 flex items-center shadow-lg">
                           <Star className="text-purple-400 mr-2 h-5 w-5 md:h-6 md:w-6" />
-                          <span className="font-bold text-lg md:text-xl text-white">+{Math.floor(quest.xp * rewardMultiplier)}</span>
+                          <span className="font-bold text-lg md:text-xl text-white">+{quest.xp}</span>
                       </div>
                   </div>
                   <button onClick={onClose} className="w-full py-3 rounded-xl border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors font-bold">Закрыть Свиток</button>
               </motion.div>
-            ) : showAffirmation ? (
-                <motion.div 
-                    initial={{ opacity: 0, y: 20 }} 
-                    animate={{ opacity: 1, y: 0 }} 
-                    className="text-center py-10"
-                >
-                    <Heart className="w-20 h-20 text-pink-500 mx-auto mb-6 animate-bounce" />
-                    <h3 className="text-2xl font-bold text-white mb-4">Ты молодец!</h3>
-                    <p className="text-lg text-slate-300 mb-8 max-w-md mx-auto leading-relaxed">
-                        Выполнив это задание, ты сделал вклад в свое будущее. Завтра будет немного легче, потому что ты постарался сегодня. Горжусь тобой!
-                        {rewardMultiplier < 1 && (
-                            <span className="block mt-4 text-amber-400 text-sm font-bold">
-                                (Награда уменьшена из-за частичного выполнения)
-                            </span>
-                        )}
-                    </p>
-                    <button 
-                        onClick={handleFinalComplete}
-                        className="bg-pink-600 hover:bg-pink-500 text-white px-8 py-4 rounded-xl font-bold text-lg shadow-lg hover:shadow-pink-500/30 transition-all transform hover:-translate-y-1"
-                    >
-                        Принять Силу
-                    </button>
-                </motion.div>
             ) : (
               <div className="space-y-6">
                  {!isStarted ? (
@@ -330,14 +297,14 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose }) => {
         </div>
 
         {/* Footer */}
-        {!(completed || quest.completed) && isStarted && !showAffirmation && (
+        {!(completed || quest.completed) && isStarted && (
             <div className="p-4 md:p-6 bg-slate-900 border-t border-slate-800 flex flex-col md:flex-row justify-between items-center gap-4 shrink-0">
                 <div className="flex gap-4 text-sm font-bold w-full md:w-auto justify-center md:justify-start">
                     <span className="flex items-center text-amber-400"><Coins className="h-4 w-4 mr-1" /> {quest.coins}</span>
                     <span className="flex items-center text-purple-400"><Star className="h-4 w-4 mr-1" /> {quest.xp}</span>
                 </div>
                 <button 
-                   onClick={handleInitialCheck} 
+                   onClick={handleCompleteFlow} 
                    className={`w-full md:w-auto px-8 py-3 rounded-xl font-bold text-white transition-all shadow-lg
                        ${timeLeft > 0 && !isAdmin
                            ? 'bg-slate-700 text-slate-400 cursor-not-allowed' 
