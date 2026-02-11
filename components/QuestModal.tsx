@@ -2,14 +2,15 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Modal from 'react-modal';
 import { Quest, Task } from '../types';
-import { X, Coins, Star, Trophy, Volume2, StopCircle, Play, Clock, Zap } from 'lucide-react';
+import { X, Coins, Star, Trophy, Volume2, StopCircle, Play, Clock, Zap, Loader2 } from 'lucide-react';
 import { useDispatch, useSelector } from 'react-redux';
-import { completeQuestAction, startQuestAction } from '../store/userSlice';
+import { completeQuestAction, startQuestAction, selectIsPending } from '../store/userSlice';
 import { markQuestCompleted, fetchQuests } from '../store/questsSlice';
 import { toast } from 'react-toastify';
 import { motion, AnimatePresence } from 'framer-motion';
 import { RootState, AppDispatch } from '../store';
 import { useSoundEffects } from '../hooks/useSoundEffects';
+import LoadingOverlay from './LoadingOverlay';
 
 // Import new task components
 import QuizTask from './tasks/QuizTask';
@@ -37,6 +38,7 @@ interface TaskResult {
 const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose, multiplier = 1 }) => {
   const dispatch = useDispatch<AppDispatch>();
   const user = useSelector((state: RootState) => state.user.currentUser);
+  const isCompleting = useSelector(selectIsPending('completeQuest'));
   const { playQuestComplete } = useSoundEffects();
   
   // Store results for each task ID
@@ -101,6 +103,7 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose, multipl
   };
 
   const handleStart = () => {
+      if (isCompleting) return;
       dispatch(startQuestAction(quest.id));
       toast.info("Задание началось! Таймер запущен.");
   };
@@ -120,8 +123,6 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose, multipl
   }, []);
 
   const renderTask = (task: Task) => {
-      // If task is answered, maybe show a "Done" state overlay or disable it?
-      // For now, the components handle their own "submitted" state mostly.
       switch (task.type) {
         case 'quiz': return <QuizTask key={task.id} task={task} onAnswer={handleTaskAnswer} />;
         case 'text_input':
@@ -136,22 +137,20 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose, multipl
   };
 
   const handleCompleteFlow = async () => {
+      if (isCompleting) return;
       if (timeLeft > 0 && !isAdmin) {
           toast.warning(`Не так быстро! Подожди ещё ${formatTime(timeLeft)}.`);
           return;
       }
 
-      // Check if all tasks have a result
       const allTasks = quest.tasks;
       const completedCount = Object.keys(taskResults).length;
       
-      // FIX: Admins bypass this check
       if (completedCount < allTasks.length && !isAdmin) {
           toast.info("Выполни все части задания!");
           return;
       }
 
-      // Calculate Score
       let totalScore = 0;
       Object.values(taskResults).forEach(res => {
           if (res.isCorrect) totalScore += 1;
@@ -160,37 +159,38 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose, multipl
 
       let finalMultiplier = allTasks.length > 0 ? totalScore / allTasks.length : 1;
 
-      // FIX: Admin Force Complete grants full reward if tasks were skipped
       if (isAdmin && completedCount < allTasks.length) {
           finalMultiplier = 1.0;
       }
 
       if (finalMultiplier === 0 && !isAdmin) {
           toast.error("Ты провалил все задания. Попробуй снова!");
-          // Optional: allow retry without closing?
           return;
       }
 
-      // APPLY GLOBAL MULTIPLIER (e.g. from Daily Challenge 1.5x)
       finalMultiplier = finalMultiplier * multiplier;
 
-      playQuestComplete(); // Audio
-      setCompleted(true);
-      await dispatch(markQuestCompleted(quest.id));
-      await dispatch(completeQuestAction({ quest, multiplier: finalMultiplier })); 
-      
-      // Auto-refetch quests to update dashboard immediately
-      dispatch(fetchQuests());
-      
-      if (finalMultiplier >= 1.0) {
-          toast.success(`Успех! Бонус: x${multiplier}`);
+      try {
+          // Blocking starts here via Redux pending state
+          await dispatch(completeQuestAction({ quest, multiplier: finalMultiplier })).unwrap();
+          
+          playQuestComplete(); 
+          setCompleted(true);
+          dispatch(markQuestCompleted(quest.id));
+          dispatch(fetchQuests());
+          
+          if (finalMultiplier >= 1.0) {
+              toast.success(`Успех! Бонус: x${multiplier}`);
+          }
+      } catch (error) {
+          console.error("Completion failed", error);
       }
   };
 
   return (
     <Modal
       isOpen={isOpen}
-      onRequestClose={onClose}
+      onRequestClose={!isCompleting ? onClose : undefined}
       className="outline-none focus:outline-none"
       style={{
         overlay: {
@@ -216,6 +216,7 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose, multipl
         }
       }}
     >
+      <LoadingOverlay isLoading={isCompleting} message="Синхронизация..." className="rounded-2xl">
       <motion.div 
         initial={{ scale: 0.9, opacity: 0, y: 20 }}
         animate={{ scale: 1, opacity: 1, y: 0 }}
@@ -226,7 +227,7 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose, multipl
         
         {/* Header */}
         <div className="bg-gradient-to-r from-purple-900 via-slate-900 to-slate-900 p-4 md:p-6 relative border-b border-white/10 shrink-0">
-             <button onClick={onClose} className="absolute top-4 right-4 z-30 p-2 bg-slate-800/50 rounded-full text-white/50 hover:text-white hover:bg-slate-700 transition-colors"><X size={20} /></button>
+             <button disabled={isCompleting} onClick={onClose} className="absolute top-4 right-4 z-30 p-2 bg-slate-800/50 rounded-full text-white/50 hover:text-white hover:bg-slate-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"><X size={20} /></button>
              
              <div className="flex flex-wrap items-center gap-2 mb-2 pr-8">
                  <span className="bg-purple-500/20 text-purple-300 border border-purple-500/30 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest">{quest.category}</span>
@@ -273,7 +274,7 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose, multipl
                           <span className="font-bold text-lg md:text-xl text-white">+{Math.floor(quest.xp * multiplier)}</span>
                       </div>
                   </div>
-                  <button onClick={onClose} className="w-full py-3 rounded-xl border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors font-bold">Закрыть Свиток</button>
+                  <button disabled={isCompleting} onClick={onClose} className="w-full py-3 rounded-xl border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors font-bold disabled:opacity-50">Закрыть Свиток</button>
               </motion.div>
             ) : (
               <div className="space-y-6">
@@ -285,13 +286,14 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose, multipl
                          <p className="text-slate-400 mb-6">Время выполнения: <span className="text-white font-bold">{quest.minMinutes} мин</span></p>
                          <button 
                             onClick={handleStart}
-                            className="bg-primary-600 hover:bg-primary-500 text-white px-10 py-4 rounded-xl font-bold text-lg shadow-lg hover:shadow-primary-600/30 flex items-center justify-center mx-auto transition-transform active:scale-95"
+                            disabled={isCompleting}
+                            className="bg-primary-600 hover:bg-primary-500 text-white px-10 py-4 rounded-xl font-bold text-lg shadow-lg hover:shadow-primary-600/30 flex items-center justify-center mx-auto transition-transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                          >
                              <Play className="mr-2 fill-current" /> Начать Выполнение
                          </button>
                      </div>
                  ) : (
-                     <div className="space-y-6">
+                     <div className="space-y-6 pointer-events-auto">
                         {quest.tasks.map(task => renderTask(task))}
                      </div>
                  )}
@@ -309,18 +311,24 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose, multipl
                 </div>
                 <button 
                    onClick={handleCompleteFlow} 
-                   className={`w-full md:w-auto px-8 py-3 rounded-xl font-bold text-white transition-all shadow-lg
+                   disabled={isCompleting || (timeLeft > 0 && !isAdmin)}
+                   className={`w-full md:w-auto px-8 py-3 rounded-xl font-bold text-white transition-all shadow-lg flex items-center justify-center gap-2
                        ${timeLeft > 0 && !isAdmin
                            ? 'bg-slate-700 text-slate-400 cursor-not-allowed' 
-                           : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:shadow-emerald-600/30 hover:scale-105 active:scale-95'
+                           : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:shadow-emerald-600/30 hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed'
                        }
                    `}
                 >
-                    {timeLeft > 0 && isAdmin ? <><Zap size={16} className="inline mr-2" /> Force Complete</> : timeLeft > 0 ? `Подожди: ${formatTime(timeLeft)}` : 'Завершить Квест'}
+                    {isCompleting ? (
+                        <><Loader2 className="animate-spin" size={16} /> Отправка...</>
+                    ) : (
+                        timeLeft > 0 && isAdmin ? <><Zap size={16} className="inline mr-2" /> Force Complete</> : timeLeft > 0 ? `Подожди: ${formatTime(timeLeft)}` : 'Завершить Квест'
+                    )}
                 </button>
             </div>
         )}
       </motion.div>
+      </LoadingOverlay>
     </Modal>
   );
 };

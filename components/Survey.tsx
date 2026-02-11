@@ -2,9 +2,10 @@
 import React, { useState, useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { RootState, AppDispatch } from '../store';
-import { submitDailyMood } from '../store/userSlice';
+import { submitDailyMood, selectIsPending } from '../store/userSlice';
 import { Smile, Frown, Meh, Zap, Heart, Check, Clock } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import LoadingOverlay from './LoadingOverlay';
 
 const MOODS = [
     { score: 1, icon: Frown, color: 'text-red-400', bg: 'bg-red-900/20', border: 'border-red-500/30', label: 'Ужас' },
@@ -17,8 +18,8 @@ const MOODS = [
 const Survey: React.FC = () => {
   const dispatch = useDispatch<AppDispatch>();
   const user = useSelector((state: RootState) => state.user.currentUser);
+  const isSubmitting = useSelector(selectIsPending('setMood'));
   
-  const [loading, setLoading] = useState(false);
   const [timeLeft, setTimeLeft] = useState(0);
 
   // Cooldown period in minutes
@@ -48,7 +49,7 @@ const Survey: React.FC = () => {
   if (!user) return null;
 
   const handleMoodSelect = async (score: number) => {
-    setLoading(true);
+    if (isSubmitting) return;
     await dispatch(submitDailyMood({ 
         motivationScore: score, 
         stressScore: 0, 
@@ -56,7 +57,6 @@ const Survey: React.FC = () => {
         id: Date.now().toString(), 
         date: new Date().toISOString() 
     }));
-    setLoading(false);
     setTimeLeft(COOLDOWN_MINUTES);
   };
 
@@ -82,6 +82,7 @@ const Survey: React.FC = () => {
   }
 
   return (
+    <LoadingOverlay isLoading={isSubmitting} message="Запись..." className="rounded-3xl">
     <motion.div 
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
@@ -98,11 +99,11 @@ const Survey: React.FC = () => {
             <button
                 key={m.score}
                 onClick={() => handleMoodSelect(m.score)}
-                disabled={loading}
+                disabled={isSubmitting}
                 className={`
                     relative group flex flex-col items-center justify-center p-4 rounded-2xl border-2 transition-all duration-200
                     ${m.bg} ${m.border} hover:scale-105 hover:brightness-110 active:scale-95
-                    ${loading ? 'opacity-50 cursor-wait' : ''}
+                    disabled:opacity-50 disabled:cursor-not-allowed
                 `}
             >
                 <m.icon className={`h-8 w-8 mb-2 ${m.color}`} />
@@ -111,6 +112,7 @@ const Survey: React.FC = () => {
         ))}
       </div>
     </motion.div>
+    </LoadingOverlay>
   );
 };
 

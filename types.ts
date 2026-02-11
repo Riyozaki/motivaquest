@@ -99,6 +99,8 @@ export interface QuestHistoryItem {
   questTitle: string; 
   xpEarned: number;
   date: string; 
+  score?: number;
+  category?: string;
 }
 
 export interface SurveySubmission {
@@ -142,11 +144,14 @@ export interface UserProfile {
   lastDailyMood?: string; 
   themeColor?: ThemeColor;
   
-  heroClass?: HeroClass; // New field
+  heroClass?: HeroClass; 
+  className?: string; // v2.0
+  classEmoji?: string; // v2.0
+  currentLocation?: string; // v2.0
 
   // Mechanics
   activeQuestTimers: Record<number, number>;
-  habitStreaks?: Record<number, number>; // New: Track streak per specific quest ID
+  habitStreaks?: Record<number, number>; 
   dailyCompletionsCount: number;
   lastCompletionTime?: number;
   suspiciousFlags: number;
@@ -154,6 +159,13 @@ export interface UserProfile {
   streakDays: number;
   lastLoginDate?: string;
   streakTakenToday: boolean;
+  
+  // v2.0 Stats
+  totalQuestsCompleted?: number;
+  totalXpEarned?: number;
+  weeklyXp?: number;
+  weeklyXpResetDate?: string;
+  tutorialCompleted?: boolean;
 
   // Story Mode
   campaign: {
@@ -164,12 +176,17 @@ export interface UserProfile {
 }
 
 export interface LeaderboardUser {
-  id: number;
   username: string; 
-  avatar: string;
+  className: string;
+  classEmoji: string;
   level: number;
   xp: number;
+  weeklyXp?: number;
+  totalQuestsCompleted?: number;
+  streakDays?: number;
   isCurrentUser?: boolean;
+  id?: number; // legacy support
+  avatar?: string; // legacy support
 }
 
 export interface AdminAnalyticsData {

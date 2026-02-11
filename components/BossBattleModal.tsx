@@ -2,11 +2,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Modal from 'react-modal';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Skull, Crown, AlertCircle, Heart, Zap, Sword, Battery } from 'lucide-react';
-import { useDispatch } from 'react-redux';
-import { AppDispatch } from '../store';
-import { finishCampaign } from '../store/userSlice';
+import { Skull, Crown, AlertCircle, Heart, Zap, Sword, Battery, Loader2 } from 'lucide-react';
+import { useDispatch, useSelector } from 'react-redux';
+import { AppDispatch, RootState } from '../store';
+import { finishCampaign, selectIsPending } from '../store/userSlice';
 import confetti from 'canvas-confetti';
+import LoadingOverlay from './LoadingOverlay';
 
 Modal.setAppElement('#root');
 
@@ -75,6 +76,7 @@ interface Question {
 
 const BossBattleModal: React.FC<BossBattleModalProps> = ({ isOpen, onClose, allies }) => {
     const dispatch = useDispatch<AppDispatch>();
+    const isPending = useSelector(selectIsPending('bossBattle'));
     
     // Stats
     const maxPlayerHp = 150;
@@ -127,7 +129,7 @@ const BossBattleModal: React.FC<BossBattleModalProps> = ({ isOpen, onClose, alli
     };
 
     const handleAnswer = (idx: number) => {
-        if (turn !== 'player' || !currentQ) return;
+        if (turn !== 'player' || !currentQ || isPending) return;
 
         if (idx === currentQ.correct) {
             // Correct
@@ -170,7 +172,7 @@ const BossBattleModal: React.FC<BossBattleModalProps> = ({ isOpen, onClose, alli
 
     // Ally Abilities
     const useAlly = (ally: string) => {
-        if (!currentQ || turn !== 'player') return;
+        if (!currentQ || turn !== 'player' || isPending) return;
         if (allyCharges[ally] <= 0) return;
 
         // Decrement charge
@@ -196,8 +198,8 @@ const BossBattleModal: React.FC<BossBattleModalProps> = ({ isOpen, onClose, alli
     };
 
     const handleVictory = () => {
-        dispatch(finishCampaign());
-        onClose();
+        if (isPending) return;
+        dispatch(finishCampaign()).then(() => onClose());
     };
 
     return (
@@ -209,6 +211,7 @@ const BossBattleModal: React.FC<BossBattleModalProps> = ({ isOpen, onClose, alli
                 content: { position: 'relative', inset: 'auto', border: 'none', background: 'transparent', padding: 0, width: '100%', maxWidth: '700px' }
             }}
         >
+            <LoadingOverlay isLoading={isPending} message="Запись победы..." className="rounded-3xl">
             <div className="relative w-full bg-slate-900 border-2 border-slate-700 rounded-3xl overflow-hidden shadow-[0_0_50px_rgba(0,0,0,0.8)]">
                 {/* Visuals */}
                 <div className={`relative h-64 bg-slate-900 flex justify-between items-end p-8 transition-colors ${playerFlash ? 'bg-red-900/50' : ''}`}>
@@ -259,8 +262,8 @@ const BossBattleModal: React.FC<BossBattleModalProps> = ({ isOpen, onClose, alli
                                      <button
                                         key={idx}
                                         onClick={() => handleAnswer(idx)}
-                                        disabled={disabledOpts.includes(idx)}
-                                        className={`p-3 rounded-xl border-2 font-bold transition-all ${disabledOpts.includes(idx) ? 'bg-slate-900 border-slate-800 text-slate-700 opacity-50' : 'bg-slate-800 border-slate-700 hover:border-purple-500 text-white'}`}
+                                        disabled={disabledOpts.includes(idx) || isPending}
+                                        className={`p-3 rounded-xl border-2 font-bold transition-all ${disabledOpts.includes(idx) ? 'bg-slate-900 border-slate-800 text-slate-700 opacity-50' : 'bg-slate-800 border-slate-700 hover:border-purple-500 text-white disabled:opacity-50'}`}
                                      >
                                          {opt}
                                      </button>
@@ -272,7 +275,7 @@ const BossBattleModal: React.FC<BossBattleModalProps> = ({ isOpen, onClose, alli
                                  {allies.includes('wizard') && (
                                      <button 
                                         onClick={() => useAlly('wizard')} 
-                                        disabled={allyCharges['wizard'] <= 0}
+                                        disabled={allyCharges['wizard'] <= 0 || isPending}
                                         className={`flex flex-col items-center group ${allyCharges['wizard'] <= 0 ? 'opacity-30 cursor-not-allowed' : 'text-purple-400 hover:text-white'}`}
                                      >
                                          <div className="p-2 bg-purple-900/30 rounded-lg border border-purple-500/50 mb-1 relative">
@@ -285,7 +288,7 @@ const BossBattleModal: React.FC<BossBattleModalProps> = ({ isOpen, onClose, alli
                                  {allies.includes('fairy') && (
                                      <button 
                                         onClick={() => useAlly('fairy')}
-                                        disabled={allyCharges['fairy'] <= 0} 
+                                        disabled={allyCharges['fairy'] <= 0 || isPending} 
                                         className={`flex flex-col items-center group ${allyCharges['fairy'] <= 0 ? 'opacity-30 cursor-not-allowed' : 'text-pink-400 hover:text-white'}`}
                                      >
                                          <div className="p-2 bg-pink-900/30 rounded-lg border border-pink-500/50 mb-1 relative">
@@ -298,7 +301,7 @@ const BossBattleModal: React.FC<BossBattleModalProps> = ({ isOpen, onClose, alli
                                  {allies.includes('warrior') && (
                                      <button 
                                         onClick={() => useAlly('warrior')} 
-                                        disabled={allyCharges['warrior'] <= 0}
+                                        disabled={allyCharges['warrior'] <= 0 || isPending}
                                         className={`flex flex-col items-center group ${allyCharges['warrior'] <= 0 ? 'opacity-30 cursor-not-allowed' : 'text-red-400 hover:text-white'}`}
                                      >
                                          <div className="p-2 bg-red-900/30 rounded-lg border border-red-500/50 mb-1 relative">
@@ -319,7 +322,9 @@ const BossBattleModal: React.FC<BossBattleModalProps> = ({ isOpen, onClose, alli
                          <div className="text-center py-6">
                              <Crown size={48} className="text-amber-400 mx-auto mb-4" />
                              <h2 className="text-3xl font-black text-white mb-4">ПОБЕДА!</h2>
-                             <button onClick={handleVictory} className="bg-amber-600 text-white px-8 py-3 rounded-xl font-bold">Завершить</button>
+                             <button onClick={handleVictory} disabled={isPending} className="bg-amber-600 text-white px-8 py-3 rounded-xl font-bold flex items-center justify-center mx-auto gap-2 disabled:opacity-50">
+                                 {isPending ? <Loader2 className="animate-spin"/> : 'Завершить'}
+                             </button>
                          </div>
                      ) : (
                          <div className="text-center py-6">
@@ -330,6 +335,7 @@ const BossBattleModal: React.FC<BossBattleModalProps> = ({ isOpen, onClose, alli
                      )}
                 </div>
             </div>
+            </LoadingOverlay>
         </Modal>
     );
 };

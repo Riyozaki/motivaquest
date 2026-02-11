@@ -1,11 +1,11 @@
 
 import React, { useEffect, useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { Swords, ArrowRight, Lock, MapPin, Check, CheckCircle, Clock, Flame, Skull, Zap, Home as HomeIcon, Map as MapIcon, Plus, Minus, Coffee, Star, ShoppingBag, PlusCircle, MinusCircle, Award } from 'lucide-react';
+import { Swords, ArrowRight, Lock, MapPin, Check, CheckCircle, Clock, Flame, Skull, Zap, Home as HomeIcon, Map as MapIcon, Plus, Minus, Coffee, Star, ShoppingBag, PlusCircle, MinusCircle, Award, Loader2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useDispatch, useSelector } from 'react-redux';
 import { RootState, AppDispatch } from '../store';
-import { advanceCampaignDay, purchaseItem, completeQuestAction } from '../store/userSlice';
+import { advanceCampaignDay, purchaseItemAction, completeQuestAction, selectIsPending } from '../store/userSlice';
 import { fetchQuests } from '../store/questsSlice';
 import { CAMPAIGN_DATA } from '../store/questsSlice';
 import QuestModal from '../components/QuestModal';
@@ -17,6 +17,7 @@ import LocationEffects from '../components/LocationEffects';
 import confetti from 'canvas-confetti';
 import { toast } from 'react-toastify';
 import { useSoundEffects } from '../hooks/useSoundEffects';
+import LoadingOverlay from '../components/LoadingOverlay';
 
 // --- Animation Variants ---
 const containerVar = {
@@ -174,7 +175,7 @@ const CampaignView: React.FC<{
                                                 <p className="text-xs text-slate-400 mt-1">{quest.description}</p>
                                             </div>
                                             <div className="flex flex-col items-end gap-1">
-                                                <span className="text-[10px] uppercase font-bold bg-black/30 px-2 py-0.5 rounded text-white/70">{quest.rarity}</span>
+                                                <span className="text--[10px] uppercase font-bold bg-black/30 px-2 py-0.5 rounded text-white/70">{quest.rarity}</span>
                                                 {quest.completed && <CheckCircle className="text-emerald-500 h-5 w-5" />}
                                             </div>
                                         </div>
@@ -235,22 +236,14 @@ const CampaignView: React.FC<{
     );
 };
 
-// --- HELPER: SELECT RANDOM DAILY CHALLENGES (12-hour cycle, 06:00 MSK based) ---
+// --- HELPER: SELECT RANDOM DAILY CHALLENGES ---
 const getDailyRandomQuests = (allQuests: Quest[]): Quest[] => {
-    // 1. Calculate Cycle Seed based on Moscow Time (UTC+3)
     const now = new Date();
-    // Anchor point: A known 6:00 AM MSK timestamp (e.g., Jan 1, 2024 06:00 MSK)
-    // Using a timestamp relative to Epoch prevents timezone mess. 
-    // 6 AM MSK is 3 AM UTC.
     const msPer12h = 12 * 60 * 60 * 1000;
-    // Add 3 hours to current UTC time to get "virtual" MSK time for easier day/hour calculation, 
-    // or just rely on absolute math.
-    // Let's use absolute math aligned to a 3 AM UTC anchor.
     const anchor = new Date('2024-01-01T03:00:00.000Z').getTime(); 
     const currentMs = now.getTime();
     const cycleIndex = Math.floor((currentMs - anchor) / msPer12h);
     
-    // 2. Random Generator seeded by cycleIndex
     const seededRandom = (seed: number) => {
         let t = seed += 0x6D2B79F5;
         t = Math.imul(t ^ (t >>> 15), t | 1);
@@ -258,12 +251,9 @@ const getDailyRandomQuests = (allQuests: Quest[]): Quest[] => {
         return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
     };
 
-    // 3. Filter pool (Academic non-habit tasks)
     const pool = allQuests.filter(q => !q.isHabit && q.type !== 'story');
     
-    // 4. Shuffle using seeded random
     const shuffled = [...pool].sort((a, b) => {
-        // Use quest IDs mixed with cycleIndex to make it deterministic per quest per cycle
         const rA = seededRandom(cycleIndex + a.id);
         const rB = seededRandom(cycleIndex + b.id);
         return rA - rB;
@@ -281,98 +271,116 @@ const DashboardView: React.FC<{
     dispatch: AppDispatch
 }> = ({ user, quests, shopItems, onQuestSelect, dispatch }) => {
     const { playCoins } = useSoundEffects();
+    const isPendingQuest = useSelector(selectIsPending('completeQuest'));
+    const isPendingPurchase = useSelector(selectIsPending('purchase'));
     
-    // 1. Habits (Specific: Charge(55), Water(56), Sleep(69))
+    // Habits
     const habitIds = [55, 56, 69]; 
     const habits = quests.filter(q => habitIds.includes(q.id));
     
-    // 2. Daily Challenges (Random Boosted) - Seeded by 12h Cycle
-    // Use useMemo to prevent recalculation on every render
+    // Daily Challenges
     const dailyChallenges = useMemo(() => getDailyRandomQuests(quests), [quests]);
 
     const rewards = shopItems.filter(item => item.type === 'consumable').slice(0, 4);
 
-    // Live Mechanics
     const currentMp = Math.max(0, 10 - (user.dailyCompletionsCount || 0));
     const isExhausted = currentMp <= 0;
     
+    const isQuestCompletedToday = (questId: number) => {
+        if (!user.questHistory) return false;
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        return user.questHistory.some((h: any) => h.questId === questId && new Date(h.date) >= todayStart);
+    };
+
     const handleQuickBuy = (item: any) => {
+        if (isPendingPurchase) return;
         if (user.coins >= item.cost) {
-            dispatch(purchaseItem({ item }));
-            confetti({ particleCount: 50, spread: 50, origin: { y: 0.7 } });
+            dispatch(purchaseItemAction(item)).unwrap().then(() => {
+                confetti({ particleCount: 50, spread: 50, origin: { y: 0.7 } });
+            });
         }
     };
 
     const handleHabitComplete = (q: Quest) => {
-        dispatch(completeQuestAction({ quest: q, multiplier: 1 }));
-        playCoins(); // Sound effect
-        confetti({ 
-            particleCount: 30, 
-            spread: 40, 
-            origin: { y: 0.5 }, 
-            colors: ['#22c55e', '#ffffff'] 
+        if (isQuestCompletedToday(q.id) || isPendingQuest) return;
+        
+        dispatch(completeQuestAction({ quest: q, multiplier: 1 })).unwrap().then(() => {
+            playCoins(); 
+            confetti({ 
+                particleCount: 30, 
+                spread: 40, 
+                origin: { y: 0.5 }, 
+                colors: ['#22c55e', '#ffffff'] 
+            });
+            toast.success(`${q.title} выполнено! +${q.coins} монет`);
         });
-        toast.success(`${q.title} выполнено! +${q.coins} монет`);
     };
 
-    const DailyChallengeCard = ({ q }: { q: Quest }) => (
-        <div 
-            onClick={() => !q.completed && !isExhausted && onQuestSelect(q, true)} 
-            className={`group relative flex items-center p-4 mb-3 bg-gradient-to-r from-purple-900/40 to-slate-900/60 hover:from-purple-900/60 border-l-4 ${q.completed ? 'border-emerald-500 opacity-60' : 'border-amber-400'} rounded-r-xl transition-all
-            ${!q.completed && !isExhausted ? 'cursor-pointer hover:translate-x-1' : 'cursor-not-allowed opacity-50'}
-            `}
-        >
-            {!q.completed && (
-                <div className="absolute top-0 right-0 bg-amber-500 text-slate-900 text-[10px] font-black px-2 py-0.5 rounded-bl-lg flex items-center gap-1">
-                    <Zap size={10} fill="currentColor" /> x1.5 BOOST
+    const DailyChallengeCard = ({ q }: { q: Quest }) => {
+        const isDone = isQuestCompletedToday(q.id);
+        
+        return (
+            <div 
+                onClick={() => !isDone && !isExhausted && !isPendingQuest && onQuestSelect(q, true)} 
+                className={`group relative flex items-center p-4 mb-3 bg-gradient-to-r from-purple-900/40 to-slate-900/60 hover:from-purple-900/60 border-l-4 ${isDone ? 'border-emerald-500 opacity-60' : 'border-amber-400'} rounded-r-xl transition-all
+                ${!isDone && !isExhausted ? 'cursor-pointer hover:translate-x-1' : 'cursor-not-allowed opacity-50'}
+                `}
+            >
+                {!isDone && (
+                    <div className="absolute top-0 right-0 bg-amber-500 text-slate-900 text-[10px] font-black px-2 py-0.5 rounded-bl-lg flex items-center gap-1">
+                        <Zap size={10} fill="currentColor" /> x1.5 BOOST
+                    </div>
+                )}
+                
+                <div className={`p-3 rounded-full mr-4 ${isDone ? 'bg-emerald-900/30 text-emerald-400' : 'bg-purple-500/20 text-purple-300'}`}>
+                    {isDone ? <Check size={20} /> : <Swords size={20} />}
                 </div>
-            )}
-            
-            <div className={`p-3 rounded-full mr-4 ${q.completed ? 'bg-emerald-900/30 text-emerald-400' : 'bg-purple-500/20 text-purple-300'}`}>
-                {q.completed ? <Check size={20} /> : <Swords size={20} />}
-            </div>
-            <div className="flex-1">
-                <h4 className={`text-sm font-bold ${q.completed ? 'text-slate-500 line-through' : 'text-white'}`}>{q.title}</h4>
-                <div className="flex items-center text-xs text-slate-400 mt-1">
-                    <span className="text-amber-400 font-bold mr-3 flex items-center gap-1">
-                        <PlusCircle size={10} /> {Math.floor(q.coins * 1.5)} 💰
-                    </span>
-                    <span className="text-purple-400 font-bold flex items-center gap-1">
-                        <PlusCircle size={10} /> {Math.floor(q.xp * 1.5)} XP
-                    </span>
+                <div className="flex-1">
+                    <h4 className={`text-sm font-bold ${isDone ? 'text-slate-500 line-through' : 'text-white'}`}>{q.title}</h4>
+                    <div className="flex items-center text-xs text-slate-400 mt-1">
+                        <span className="text-amber-400 font-bold mr-3 flex items-center gap-1">
+                            <PlusCircle size={10} /> {Math.floor(q.coins * 1.5)} 💰
+                        </span>
+                        <span className="text-purple-400 font-bold flex items-center gap-1">
+                            <PlusCircle size={10} /> {Math.floor(q.xp * 1.5)} XP
+                        </span>
+                    </div>
                 </div>
             </div>
-        </div>
-    );
+        );
+    };
 
     const HabitCard = ({ q }: { q: Quest }) => {
         const streak = user.habitStreaks?.[q.id] || 0;
         const progress = Math.min(100, (streak / 7) * 100);
+        const isDone = isQuestCompletedToday(q.id);
 
         return (
-            <div className={`flex flex-col p-3 mb-2 bg-slate-800/40 rounded-xl border border-slate-700/50 transition-all ${q.completed ? 'opacity-70 border-emerald-500/30' : 'hover:border-slate-500 hover:bg-slate-800/60'}`}>
+            <LoadingOverlay isLoading={isPendingQuest && !isDone} message="" className="rounded-xl">
+            <div className={`flex flex-col p-3 mb-2 bg-slate-800/40 rounded-xl border border-slate-700/50 transition-all ${isDone ? 'opacity-70 border-emerald-500/30' : 'hover:border-slate-500 hover:bg-slate-800/60'}`}>
                 <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-3">
-                        <div className={`p-2 rounded-lg ${q.completed ? 'text-emerald-500 bg-emerald-500/10' : 'text-blue-400 bg-blue-500/10'}`}>
-                            {q.completed ? <CheckCircle size={18} /> : <Flame size={18} />}
+                        <div className={`p-2 rounded-lg ${isDone ? 'text-emerald-500 bg-emerald-500/10' : 'text-blue-400 bg-blue-500/10'}`}>
+                            {isDone ? <CheckCircle size={18} /> : <Flame size={18} />}
                         </div>
                         <div>
-                            <h4 className={`text-sm font-bold ${q.completed ? 'text-slate-500 line-through' : 'text-slate-200'}`}>{q.title}</h4>
+                            <h4 className={`text-sm font-bold ${isDone ? 'text-slate-500 line-through' : 'text-slate-200'}`}>{q.title}</h4>
                         </div>
                     </div>
                     <div className="flex items-center gap-1">
-                        {q.completed ? (
+                        {isDone ? (
                             <div className="px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 text-xs font-bold flex items-center gap-1">
                                 <Check size={14} /> Готово
                             </div>
                         ) : (
                             <button 
-                                disabled={isExhausted}
+                                disabled={isExhausted || isPendingQuest}
                                 onClick={() => handleHabitComplete(q)} 
-                                className={`p-2 rounded-lg transition-all bg-slate-700 text-slate-300 hover:text-white hover:bg-emerald-600 hover:scale-105 active:scale-95 shadow-lg ${isExhausted ? 'cursor-not-allowed opacity-50' : ''}`}
+                                className={`p-2 rounded-lg transition-all bg-slate-700 text-slate-300 hover:text-white hover:bg-emerald-600 hover:scale-105 active:scale-95 shadow-lg ${isExhausted || isPendingQuest ? 'cursor-not-allowed opacity-50' : ''}`}
                                 title="Отметить выполненным"
                             >
-                                <Plus size={18} />
+                                {isPendingQuest ? <Loader2 className="animate-spin" size={18} /> : <Plus size={18} />}
                             </button>
                         )}
                     </div>
@@ -389,13 +397,14 @@ const DashboardView: React.FC<{
                     <span className="text-[10px] text-slate-600 font-mono">Цель: 7</span>
                 </div>
             </div>
+            </LoadingOverlay>
         );
     };
 
     return (
         <div className="space-y-8">
-            {/* Hero Header Stats */}
-            <motion.div variants={itemVar} initial="hidden" animate="show" className="glass-panel p-6 rounded-3xl relative overflow-hidden">
+            {/* Hero Header Stats (Tour Step 1) */}
+            <motion.div variants={itemVar} initial="hidden" animate="show" className="tour-step-1 glass-panel p-6 rounded-3xl relative overflow-hidden">
                 <div className="absolute top-0 right-0 w-64 h-64 bg-purple-600/20 blur-[100px] rounded-full"></div>
                 <div className="flex flex-col md:flex-row items-center gap-6 relative z-10">
                     <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-lg shrink-0">
@@ -452,8 +461,8 @@ const DashboardView: React.FC<{
             {/* Columns Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                 
-                {/* 1. Habits (Routine) */}
-                <div className="glass-panel p-5 rounded-2xl min-h-[400px] border border-slate-700/50">
+                {/* 1. Habits (Routine) - Tour Step 3 mapped here as action history */}
+                <div className="tour-step-3 glass-panel p-5 rounded-2xl min-h-[400px] border border-slate-700/50">
                     <h3 className="text-blue-400 font-bold uppercase tracking-widest mb-4 flex items-center gap-2">
                         <CheckCircle size={18} /> Привычки
                     </h3>
@@ -464,8 +473,8 @@ const DashboardView: React.FC<{
                     </div>
                 </div>
 
-                {/* 2. Daily Challenges (Random Boosted) */}
-                <div className={`glass-panel p-5 rounded-2xl min-h-[400px] border border-purple-500/30 bg-purple-900/10 ${isExhausted ? 'opacity-70' : ''}`}>
+                {/* 2. Daily Challenges (Random Boosted) - Tour Step 2 */}
+                <div className={`tour-step-2 glass-panel p-5 rounded-2xl min-h-[400px] border border-purple-500/30 bg-purple-900/10 ${isExhausted ? 'opacity-70' : ''}`}>
                     <h3 className="text-purple-400 font-bold uppercase tracking-widest mb-1 flex items-center gap-2">
                         <Award size={18} /> Испытания Дня
                     </h3>
@@ -478,6 +487,7 @@ const DashboardView: React.FC<{
                 </div>
 
                 {/* 3. Rewards */}
+                <LoadingOverlay isLoading={isPendingPurchase} className="h-full rounded-2xl">
                 <div className="glass-panel p-5 rounded-2xl min-h-[400px] border border-slate-700/50">
                     <h3 className="text-emerald-400 font-bold uppercase tracking-widest mb-4 flex items-center gap-2">
                         <ShoppingBag size={18} /> Награды
@@ -491,8 +501,8 @@ const DashboardView: React.FC<{
                                 <h4 className="text-sm font-bold text-white mb-1">{item.name}</h4>
                                 <button 
                                     onClick={() => handleQuickBuy(item)}
-                                    disabled={user.coins < item.cost}
-                                    className={`text-xs font-bold px-3 py-1.5 rounded-lg border w-full mt-1 ${
+                                    disabled={user.coins < item.cost || isPendingPurchase}
+                                    className={`text-xs font-bold px-3 py-1.5 rounded-lg border w-full mt-1 flex justify-center items-center gap-1 ${
                                         user.coins >= item.cost 
                                         ? 'border-amber-500 text-amber-400 hover:bg-amber-900/30' 
                                         : 'border-slate-600 text-slate-500 cursor-not-allowed'
@@ -504,6 +514,7 @@ const DashboardView: React.FC<{
                         ))}
                     </div>
                 </div>
+                </LoadingOverlay>
 
             </div>
         </div>

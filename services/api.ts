@@ -1,11 +1,10 @@
 
-import { UserProfile, Quest } from '../types';
+import { UserProfile } from '../types';
 
-// New Deployment ID from prompt
+// Updated Deployment ID v2.0
 const API_URL = 'https://script.google.com/macros/s/AKfycbyibXkrpjTcaGb23jx_WosICwTx3jL8RYGYayNh3ypi6Vaz2nRUaKVTuhb1oEAFELgTJw/exec';
 
-// Increased timeout for Google Sheets latency
-const TIMEOUT_MS = 20000;
+const TIMEOUT_MS = 25000; // Increased timeout
 const OFFLINE_QUEUE_KEY = 'motiva_offline_queue';
 
 interface OfflineRequest {
@@ -13,6 +12,56 @@ interface OfflineRequest {
     action: string;
     data: any;
     timestamp: number;
+}
+
+// --- Payload Interfaces ---
+
+export interface CompleteQuestPayload {
+    email: string;
+    questId: number;
+    questName: string;
+    category: string;
+    rarity: string;
+    score: number;
+    multiplier: number;
+    xpEarned: number;
+    coinsEarned: number;
+    hpLost: number;
+    questHistoryEntry: {
+        questId: number;
+        questTitle: string;
+        date: string;
+        score?: number;
+        category?: string;
+        xpEarned: number;
+    };
+    newLevel: number;
+    newXp: number;
+    newNextLevelXp: number;
+    newCoins: number;
+}
+
+export interface BossBattlePayload {
+    email: string;
+    bossId: string;
+    bossName: string;
+    won: boolean;
+    score: number;
+    totalQuestions: number;
+    xpEarned: number;
+    coinsEarned: number;
+    alliesUsed: string[];
+}
+
+export interface UpdateProfilePayload {
+    email: string;
+    username?: string;
+    grade?: number;
+    className?: string;
+    classEmoji?: string;
+    currentLocation?: string;
+    selectedTheme?: string;
+    tutorialCompleted?: boolean;
 }
 
 // Helper: Sleep function
@@ -52,7 +101,8 @@ const flushOfflineQueue = async () => {
 
         for (const req of queue) {
             try {
-                await request(req.action, req.data, 'POST', 0, true); // true = skipQueue to avoid recursive loop
+                // Assuming fire-and-forget actions don't return data we urgently need right now
+                await request(req.action, req.data, 'POST', 0, true); 
                 successCount++;
             } catch (e) {
                 console.warn(`[Offline] Retry failed for ${req.action}`, e);
@@ -73,14 +123,14 @@ const flushOfflineQueue = async () => {
     }
 };
 
-const request = async (action: string, data: any = {}, method: 'POST' | 'GET' = 'POST', retryCount = 0, skipQueue = false): Promise<any> => {
+const request = async <T = any>(action: string, data: any = {}, method: 'POST' | 'GET' = 'POST', retryCount = 0, skipQueue = false): Promise<T> => {
     const controller = new AbortController();
     const id = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
     try {
         let url = API_URL;
         
-        // Normalize email on frontend too, just in case
+        // Normalize email on frontend too
         if (data.email) {
             data.email = data.email.trim().toLowerCase();
         }
@@ -109,25 +159,22 @@ const request = async (action: string, data: any = {}, method: 'POST' | 'GET' = 
 
         const result = await response.json();
         
-        // ERROR HANDLING & RETRY LOGIC
         if (result.error) {
-            // If user not found, and we haven't retried too many times, wait and try again.
+            // Retry logic for "User not found" which might be a latency issue on sheets
             if (result.error.includes('User not found') && retryCount < 3) {
                 console.warn(`[${action}] User not found, retrying in 2s... (Attempt ${retryCount + 1})`);
                 await sleep(2000);
-                return request(action, data, method, retryCount + 1, skipQueue);
+                return request<T>(action, data, method, retryCount + 1, skipQueue);
             }
-            
             throw new Error(result.error);
         }
 
-        // On Success: Try to flush pending offline requests
+        // On Success: Try to flush pending offline requests in background
         if (!skipQueue) {
-            // Don't await this, let it run in background
             flushOfflineQueue(); 
         }
 
-        return result;
+        return result as T;
     } catch (error: any) {
         clearTimeout(id);
         
@@ -135,7 +182,6 @@ const request = async (action: string, data: any = {}, method: 'POST' | 'GET' = 
         
         if (isNetworkError && !skipQueue && method === 'POST') {
              saveToQueue(action, data);
-             // Throw specific error code for UI to handle gracefully
              throw new Error("OFFLINE_SAVED");
         }
         
@@ -143,68 +189,92 @@ const request = async (action: string, data: any = {}, method: 'POST' | 'GET' = 
              throw new Error("Сервер долго отвечает. Google Таблицы могут спать, попробуйте еще раз.");
         }
         
-        // Rethrow explicitly
         throw error;
     }
 };
 
 export const api = {
-    register: async (email: string, password: string, username: string) => {
-        const res = await request('register', { email, password, username });
-        await sleep(3000); 
+    // 1. Registration
+    register: async (email: string, password: string, username: string, grade: number, className?: string, classEmoji?: string) => {
+        const res = await request<{success: true, message: string}>('register', { email, password, username, grade, className, classEmoji });
+        await sleep(2000); // Wait for sheet consistency
         return res;
     },
 
+    // 2. Login
     login: async (email: string, password?: string) => {
-        return await request('login', { email, password });
+        return await request<{success: true, user: any, progress: any, info: any}>('login', { email, password });
     },
 
-    getAllUserData: async (email: string) => {
-        return await request('getAllUserData', { email }, 'GET');
+    // 3. Daily Login (New v2.0)
+    dailyLogin: async (email: string) => {
+        return await request<{
+            success: true, 
+            alreadyLoggedIn: boolean, 
+            streakDays: number, 
+            hpRestored: boolean, 
+            progress: any
+        }>('dailyLogin', { email });
     },
 
-    // Updates 'progress' sheet
-    updateProgress: async (email: string, progress: Partial<UserProfile>) => {
-        const sheetData: any = {};
-        
-        if (progress.coins !== undefined) sheetData.gold = progress.coins;
-        if (progress.currentXp !== undefined) sheetData.xp = progress.currentXp;
-        if (progress.level !== undefined) sheetData.level = progress.level;
-        if (progress.avatar !== undefined) sheetData.visitorAvatar = progress.avatar;
-        if (progress.currentHp !== undefined) sheetData.hp = progress.currentHp;
-        
-        if (Object.keys(sheetData).length > 0) {
-            return await request('updateProgress', { email, progress: sheetData });
-        }
+    // 4. Complete Quest (New v2.0 Extended)
+    completeQuest: async (payload: CompleteQuestPayload) => {
+        return await request<{success: true}>('completeQuest', payload);
     },
 
-    // Updates 'info' sheet
-    updateInfo: async (email: string, infoData: any) => {
-        const allowedKeys = [
-            'dailyReport', 'mood', 'cheating', 'currentLevel', 'unlockedAllies', 
-            'questsTaken', 'dailyStreak', 'streakTakenToday', 'purchases', 
-            'achievements', 'interfaceColor', 'heroClass', 'lastLoginDate'
-        ];
-        
-        const filteredData: any = {};
-        for (const key of allowedKeys) {
-            if (infoData[key] !== undefined) {
-                filteredData[key] = infoData[key];
-            }
-        }
-
-        if (Object.keys(filteredData).length > 0) {
-            return await request('updateInfo', { email, info: filteredData });
-        }
+    // 5. Boss Battle
+    completeBossBattle: async (payload: BossBattlePayload) => {
+        return await request<{success: true}>('completeBossBattle', payload);
     },
 
+    // 6. Campaign Progress
+    updateCampaign: async (email: string, campaignId: string, currentDay: number, completedDays: number[]) => {
+        return await request<{success: true}>('updateCampaign', { email, campaignId, currentDay, completedDays });
+    },
+
+    // 7. Daily Challenges
+    saveDailyChallenge: async (email: string, cycleIndex: number, questIds: number[], completedQuestIds: number[]) => {
+        return await request<{success: true}>('saveDailyChallenge', { email, cycleIndex, questIds, completedQuestIds });
+    },
+
+    // 8. Leaderboard
+    getLeaderboard: async (type: 'weekly' | 'alltime' = 'alltime') => {
+        return await request<{success: true, data: any[]}>('getLeaderboard', { type }, 'GET');
+    },
+
+    // 9. Update Profile (Universal)
+    updateProfile: async (payload: UpdateProfilePayload) => {
+        return await request<{success: true}>('updateProfile', payload);
+    },
+
+    // 10. Weekly Stats
+    saveWeeklyStats: async (email: string, stats: { weekStart: string, questsCompleted: number, coinsEarned: number, xpEarned: number, bestCategory: string }) => {
+        return await request<{success: true}>('saveWeeklyStats', { email, ...stats });
+    },
+
+    // 11. Purchases
     addPurchase: async (email: string, item: { id: string; name: string; cost: number }) => {
-        return await request('addPurchase', { 
+        return await request<{success: true}>('addPurchase', { 
             email, 
             itemId: item.id, 
             itemName: item.name, 
             price: item.cost 
         });
+    },
+
+    // --- Legacy / Helpers ---
+
+    getAllUserData: async (email: string) => {
+        return await request<{success: true, user: any, progress: any, info: any, quests: any[]}>('getAllUserData', { email }, 'GET');
+    },
+
+    updateProgress: async (email: string, progress: Partial<UserProfile>) => {
+        // Fallback to updateProfile/updateProgress specific logic
+        return await request('updateProgress', { email, progress });
+    },
+
+    updateInfo: async (email: string, info: any) => {
+        return await request('updateInfo', { email, info });
     },
 
     addAchievement: async (email: string, achievement: { id: string; title: string }) => {
@@ -213,6 +283,10 @@ export const api = {
             achievementId: achievement.id,
             achievementName: achievement.title
         });
+    },
+
+    unlockAlly: async (email: string, allyId: string) => {
+        return await request('unlockAlly', { email, allyId });
     },
 
     setMood: async (email: string, moodScore: number) => {
@@ -225,15 +299,7 @@ export const api = {
         return await request('setDailyReport', { email, report: report });
     },
 
-    completeQuest: async (email: string, questId: number, questTitle: string) => {
-        return await request('completeQuest', { 
-            email, 
-            visitorId: questId, 
-            visitorName: questTitle 
-        });
-    },
-
     getQuests: async (email: string) => {
-        return await request('getQuests', { email }, 'GET');
+        return await request<{success: true, data: any[]}>('getQuests', { email }, 'GET');
     }
 };

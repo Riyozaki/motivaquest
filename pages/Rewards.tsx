@@ -1,24 +1,29 @@
+
 import React, { useState } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
-import { RootState } from '../store';
-import { purchaseItem } from '../store/userSlice';
-import { Coins, ShoppingBag, Lock, Check, Zap, Target, Sparkles, Shield, Coffee, Gamepad2, Pizza, X } from 'lucide-react';
+import { RootState, AppDispatch } from '../store';
+import { purchaseItemAction, selectIsPending } from '../store/userSlice';
+import { Coins, ShoppingBag, Lock, Check, Zap, Target, Sparkles, Shield, Coffee, Gamepad2, Pizza, X, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import confetti from 'canvas-confetti';
+import LoadingOverlay from '../components/LoadingOverlay';
 
 const Rewards: React.FC = () => {
-  const dispatch = useDispatch();
+  const dispatch = useDispatch<AppDispatch>();
   const user = useSelector((state: RootState) => state.user.currentUser);
   const shopItems = useSelector((state: RootState) => state.rewards.shopItems);
+  const isPurchasing = useSelector(selectIsPending('purchase'));
   const [purchasedItem, setPurchasedItem] = useState<{name: string, icon: string} | null>(null);
 
   if (!user) return null;
 
   const handleBuy = (item: any) => {
+    if (isPurchasing) return;
     if (user.coins >= item.cost) {
-      dispatch(purchaseItem({ item: item }));
-      setPurchasedItem({ name: item.name, icon: item.icon });
-      confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 } });
+      dispatch(purchaseItemAction(item)).unwrap().then(() => {
+          setPurchasedItem({ name: item.name, icon: item.icon });
+          confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 } });
+      });
     }
   };
 
@@ -36,7 +41,10 @@ const Rewards: React.FC = () => {
 
   return (
     <div className="max-w-6xl mx-auto space-y-8 relative">
-      
+      <LoadingOverlay isLoading={isPurchasing} message="Оплата..." className="fixed top-4 right-4 z-50 pointer-events-none">
+          <></>
+      </LoadingOverlay>
+
       {/* Purchase Modal */}
       <AnimatePresence>
           {purchasedItem && (
@@ -87,12 +95,12 @@ const Rewards: React.FC = () => {
           const canAfford = user.coins >= item.cost;
           
           return (
+            <LoadingOverlay key={item.id} isLoading={isPurchasing && canAfford && !isOwned} className="rounded-2xl h-full">
             <motion.div 
-              key={item.id} 
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={{ delay: idx * 0.1 }}
-              className={`relative glass-panel rounded-2xl p-6 flex flex-col items-center text-center transition-all duration-300 border-t border-white/5
+              className={`relative glass-panel rounded-2xl p-6 flex flex-col items-center text-center transition-all duration-300 border-t border-white/5 h-full
                 ${isOwned ? 'opacity-60 grayscale-[0.5]' : canAfford ? 'hover:shadow-[0_0_20px_rgba(124,58,237,0.3)] hover:-translate-y-2' : 'opacity-75'}
               `}
             >
@@ -121,14 +129,14 @@ const Rewards: React.FC = () => {
                 ) : (
                   <button 
                     onClick={() => handleBuy(item)}
-                    disabled={!canAfford}
+                    disabled={!canAfford || isPurchasing}
                     className={`w-full py-3 px-4 rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center space-x-2 transition-all ${
                       canAfford 
-                        ? 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white shadow-lg' 
+                        ? 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white shadow-lg disabled:opacity-50' 
                         : 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'
                     }`}
                   >
-                    {canAfford ? (
+                    {isPurchasing && canAfford ? <Loader2 className="animate-spin h-4 w-4" /> : canAfford ? (
                       <ShoppingBag className="h-4 w-4" />
                     ) : (
                       <Lock className="h-4 w-4" />
@@ -138,6 +146,7 @@ const Rewards: React.FC = () => {
                 )}
               </div>
             </motion.div>
+            </LoadingOverlay>
           );
         })}
       </div>

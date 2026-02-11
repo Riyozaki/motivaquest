@@ -5,11 +5,10 @@ import { toast } from 'react-toastify';
 import { RootState } from './index';
 import { CAMPAIGN_DATA } from './questsSlice';
 import { analytics } from '../services/analytics';
-import { api } from '../services/api';
-import { audio } from '../services/audio'; // Direct audio service usage
+import { api, CompleteQuestPayload, BossBattlePayload } from '../services/api';
+import { audio } from '../services/audio';
 
 const STORAGE_KEY_EMAIL = 'motiva_user_email';
-const STORAGE_KEY_LAST_REWARD = 'motiva_last_reward_claim'; 
 
 interface DailyRewardData {
     xp: number;
@@ -18,11 +17,19 @@ interface DailyRewardData {
     bonusMultiplier: number;
 }
 
-// Visual Reward Queue Item
 export interface RewardAnimation {
     id: string;
     xp: number;
     coins: number;
+}
+
+interface PendingActions {
+    completeQuest: boolean;
+    purchase: boolean;
+    bossBattle: boolean;
+    setMood: boolean;
+    updateProfile: boolean;
+    auth: boolean;
 }
 
 interface UserState {
@@ -30,7 +37,8 @@ interface UserState {
   loading: boolean;
   error: string | null;
   dailyRewardPopup: DailyRewardData | null;
-  pendingRewardAnimations: RewardAnimation[]; // Queue for FloatingReward.tsx
+  pendingRewardAnimations: RewardAnimation[];
+  pendingActions: PendingActions;
 }
 
 const initialState: UserState = {
@@ -39,6 +47,14 @@ const initialState: UserState = {
   error: null,
   dailyRewardPopup: null,
   pendingRewardAnimations: [],
+  pendingActions: {
+      completeQuest: false,
+      purchase: false,
+      bossBattle: false,
+      setMood: false,
+      updateProfile: false,
+      auth: false
+  }
 };
 
 // --- DEFAULT USER STATE ---
@@ -49,7 +65,7 @@ const DEFAULT_USER_DATA: Partial<UserProfile> = {
     currentXp: 0,
     nextLevelXp: 100,
     coins: 0,
-    currentHp: 50, 
+    currentHp: 100, 
     completedQuests: 0,
     inventory: [],
     achievements: [],
@@ -70,112 +86,73 @@ const DEFAULT_USER_DATA: Partial<UserProfile> = {
     }
 };
 
+// V2.0 Map function - expects cleaner object structure from backend
 const mapSheetToUser = (rawData: any): UserProfile => {
-    if (!rawData) throw new Error("Empty data");
+    if (!rawData || !rawData.user) throw new Error("Empty data");
 
+    const { user } = rawData;
+    // Fallback to empty objects if progress/info are missing/null to prevent crashes
     const progress = rawData.progress || {};
     const info = rawData.info || {};
-    const user = rawData.user || {};
-    const questsLog = rawData.quests || [];
+    const quests = rawData.quests || [];
 
-    const email = (user.email || progress.email || info.email || rawData.email || '').toLowerCase().trim();
-    const username = user.username || rawData.username || 'Hero';
-
-    const mappedHistory: QuestHistoryItem[] = Array.isArray(questsLog) ? questsLog.map((q: any) => ({
-        questId: Number(q.visitorId || q[1]),
-        questTitle: q.visitorName || q[2] || 'Unknown Quest',
-        date: q.timestamp || q[5] || new Date().toISOString(),
-        xpEarned: 0
+    // Map Quest History
+    const mappedHistory: QuestHistoryItem[] = Array.isArray(quests) ? quests.map((q: any) => ({
+        questId: Number(q.questId || q.visitorId),
+        questTitle: q.questName || q.visitorName || 'Unknown',
+        date: q.completedAt || q.timestamp || new Date().toISOString(),
+        xpEarned: Number(q.xpEarned) || 0,
+        score: Number(q.score) || 0,
+        category: q.category
     })) : [];
 
-    const rawPurchases = info.purchases || [];
-    const inventory: string[] = Array.isArray(rawPurchases) ? rawPurchases.map((p: any) => p.itemId) : [];
-
-    const rawAchievements = info.achievements || [];
-    const achievements: string[] = Array.isArray(rawAchievements) ? rawAchievements.map((a: any) => a.id) : [];
+    // Map Campaign
+    const campaignProg = info.campaignProgress && Array.isArray(info.campaignProgress) && info.campaignProgress.length > 0 
+        ? info.campaignProgress[0] 
+        : null;
 
     const campaignData = {
-        currentDay: Number(info.currentLevel) || 1, 
+        currentDay: campaignProg ? Number(campaignProg.currentDay) : (Number(info.currentLevel) || 1), 
         isDayComplete: false, 
         unlockedAllies: Array.isArray(info.unlockedAllies) ? info.unlockedAllies : []
     };
 
     return {
         ...DEFAULT_USER_DATA,
-        email: email,
-        username: username,
+        email: user.email,
+        username: user.username,
+        grade: Number(user.grade) || 7,
+        
+        // Progress
         level: Number(progress.level) || 1,
         currentXp: Number(progress.xp) || 0,
-        coins: Number(progress.gold) || 0,
-        currentHp: Number(progress.hp) || 50,
-        avatar: progress.visitorAvatar || 'warrior',
-        streakDays: Number(info.dailyStreak) || 0,
-        streakTakenToday: Boolean(info.streakTakenToday), 
-        themeColor: info.interfaceColor || 'purple',
-        heroClass: info.heroClass || undefined, // Map class
-        lastDailyMood: info.moodDate || info.mood !== 'neutral' ? (info.moodDate || new Date().toISOString()) : undefined, 
-        inventory: inventory,
-        achievements: achievements,
+        nextLevelXp: Number(progress.nextLevelXp) || 100,
+        coins: Number(progress.coins || progress.gold) || 0,
+        currentHp: Number(progress.currentHp) || 100,
+        streakDays: Number(progress.streakDays || info.dailyStreak) || 0,
+        lastLoginDate: progress.lastLoginDate,
+        totalQuestsCompleted: Number(progress.totalQuestsCompleted) || 0,
+        weeklyXp: Number(progress.weeklyXp) || 0,
+        
+        // Profile
+        avatar: progress.visitorAvatar || 'warrior', // Legacy field name mapping
+        heroClass: info.heroClass || undefined,
+        className: progress.className,
+        classEmoji: progress.classEmoji,
+        currentLocation: progress.currentLocation || 'forest',
+        themeColor: info.selectedTheme || info.interfaceColor || 'purple',
+        
+        // Lists
+        inventory: Array.isArray(info.purchases) ? info.purchases.map((p: any) => p.itemId) : [],
+        achievements: Array.isArray(info.achievements) ? info.achievements.map((a: any) => a.id) : [],
         questHistory: mappedHistory,
         campaign: campaignData,
+        
+        // Misc
+        lastDailyMood: info.mood !== 'neutral' ? new Date().toISOString() : undefined, 
         completedQuests: mappedHistory.length,
         hasParentalConsent: true,
-        lastLoginDate: info.lastLoginDate || new Date().toDateString() 
     } as UserProfile;
-};
-
-const processDailyLogin = (user: UserProfile): { user: UserProfile, reward: DailyRewardData | null } => {
-    const today = new Date();
-    const todayStr = today.toDateString();
-    
-    let newUser = { ...user };
-    let reward: DailyRewardData | null = null;
-
-    if (user.lastLoginDate) {
-        const lastLogin = new Date(user.lastLoginDate);
-        const diffTime = Math.abs(today.setHours(0,0,0,0) - lastLogin.setHours(0,0,0,0));
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
-
-        if (diffDays >= 1) {
-            newUser.dailyCompletionsCount = 0;
-            newUser.streakTakenToday = false; 
-            localStorage.removeItem(STORAGE_KEY_LAST_REWARD);
-
-            if (diffDays > 1) {
-                const penalty = (diffDays - 1) * 10;
-                newUser.currentHp = Math.max(0, (newUser.currentHp || 50) - penalty);
-                newUser.streakDays = 0; 
-            }
-        }
-    }
-    
-    newUser.lastLoginDate = todayStr;
-
-    const lastClaimedLocal = localStorage.getItem(STORAGE_KEY_LAST_REWARD);
-
-    if (lastClaimedLocal !== todayStr && !newUser.streakTakenToday) {
-        const newStreak = (newUser.streakDays || 0) + 1;
-        const bonusMultiplier = 1 + (newStreak * 0.1);
-        const coinsEarned = Math.floor(50 * bonusMultiplier);
-        const xpEarned = Math.floor(100 * bonusMultiplier);
-
-        newUser.streakDays = newStreak;
-        newUser.streakTakenToday = true;
-        newUser.coins = (newUser.coins || 0) + coinsEarned;
-        newUser.currentXp = (newUser.currentXp || 0) + xpEarned;
-
-        if (!newUser.nextLevelXp) newUser.nextLevelXp = 100 * Math.pow(1.5, newUser.level - 1);
-        while (newUser.currentXp >= newUser.nextLevelXp) {
-            newUser.currentXp -= newUser.nextLevelXp;
-            newUser.level++;
-            newUser.nextLevelXp = Math.floor(100 * Math.pow(1.5, newUser.level - 1));
-        }
-
-        reward = { coins: coinsEarned, xp: xpEarned, streak: newStreak, bonusMultiplier };
-        localStorage.setItem(STORAGE_KEY_LAST_REWARD, todayStr);
-    }
-
-    return { user: newUser, reward };
 };
 
 // Helper for offline toast
@@ -189,7 +166,7 @@ const handleApiError = (e: any) => {
 
 // --- Thunks ---
 
-export const initAuth = createAsyncThunk('user/initAuth', async () => {
+export const initAuth = createAsyncThunk('user/initAuth', async (_, { dispatch }) => {
     const email = localStorage.getItem(STORAGE_KEY_EMAIL);
     if (!email) return null;
 
@@ -198,66 +175,117 @@ export const initAuth = createAsyncThunk('user/initAuth', async () => {
         if (!response.success) return null;
 
         const normalizedUser = mapSheetToUser(response);
-        const { user: updatedUser, reward } = processDailyLogin(normalizedUser);
         
-        if (updatedUser.currentHp !== normalizedUser.currentHp || updatedUser.dailyCompletionsCount !== normalizedUser.dailyCompletionsCount) {
-             try {
-                 await api.updateProgress(updatedUser.email, {
-                    coins: updatedUser.coins,
-                    currentXp: updatedUser.currentXp,
-                    level: updatedUser.level,
-                    currentHp: updatedUser.currentHp 
-                });
-                await api.updateInfo(updatedUser.email, {
-                    dailyStreak: updatedUser.streakDays,
-                    streakTakenToday: updatedUser.streakTakenToday,
-                    lastLoginDate: updatedUser.lastLoginDate
-                });
-             } catch (e) { handleApiError(e); }
+        // TRIGGER SERVER-SIDE DAILY LOGIN
+        const loginRes = await api.dailyLogin(email);
+        
+        let reward: DailyRewardData | null = null;
+        
+        if (loginRes.success) {
+            // Update local state with server data
+            normalizedUser.streakDays = loginRes.streakDays;
+            if (loginRes.progress && loginRes.progress.currentHp !== undefined) {
+                normalizedUser.currentHp = loginRes.progress.currentHp;
+            }
+            normalizedUser.lastLoginDate = new Date().toISOString().split('T')[0];
+
+            // If not logged in yet today (server flag), show reward locally
+            if (!loginRes.alreadyLoggedIn) {
+                // Calculate visual reward only
+                const bonusMultiplier = 1 + (normalizedUser.streakDays * 0.1);
+                const coinsEarned = Math.floor(50 * bonusMultiplier);
+                const xpEarned = Math.floor(100 * bonusMultiplier);
+                
+                reward = { coins: coinsEarned, xp: xpEarned, streak: normalizedUser.streakDays, bonusMultiplier };
+                
+                dispatch(addExperience({ xp: xpEarned, coins: coinsEarned }));
+            }
         }
 
-        return { user: updatedUser, reward };
+        return { user: normalizedUser, reward };
     } catch (e) {
         console.error("Auth Init Failed:", e);
-        // If offline, we might want to load from local storage cache if implemented, 
-        // but for now return null or previous state is hard without persistence beyond auth token.
         return null;
     }
 });
 
-export const loginDemo = createAsyncThunk('user/loginDemo', async () => {
+export const loginDemo = createAsyncThunk('user/loginDemo', async (_, { dispatch }) => {
     const demoEmail = 'demo@motivaquest.local';
-    const user = { ...DEFAULT_USER_DATA, email: demoEmail, username: "Demo Hero", uid: 'demo_hero_id', role: 'admin' } as UserProfile;
-    return { user, reward: null };
+    const demoPass = 'demo123';
+    const demoUsername = "Demo Hero";
+
+    const demoUserStruct = {
+        ...DEFAULT_USER_DATA,
+        email: demoEmail,
+        username: demoUsername,
+        uid: 'demo_hero_id',
+        role: 'admin',
+        grade: 10,
+        heroClass: 'warrior',
+        className: 'Warrior',
+        classEmoji: '⚔️',
+        lastLoginDate: new Date().toDateString(),
+        hasParentalConsent: true,
+        currentHp: 100,
+        coins: 0,
+        level: 1
+    } as UserProfile;
+
+    try {
+        const response = await api.login(demoEmail, demoPass);
+        const normalizedUser = mapSheetToUser(response);
+        normalizedUser.role = 'admin';
+        normalizedUser.uid = 'demo_hero_id';
+        
+        localStorage.setItem(STORAGE_KEY_EMAIL, normalizedUser.email);
+        return { user: normalizedUser, reward: null };
+    } catch (e: any) {
+        console.warn("Demo user login failed (likely not found). Registering...");
+        try {
+            await api.register(demoEmail, demoPass, demoUsername, 10, "Warrior", "⚔️");
+        } catch (regError: any) {
+            if (regError.message && regError.message.includes("Email already exists")) {
+                console.log("Demo user exists but login failed. Forcing entry.");
+            } else {
+                throw regError;
+            }
+        }
+        localStorage.setItem(STORAGE_KEY_EMAIL, demoUserStruct.email);
+        return { user: demoUserStruct, reward: null };
+    }
 });
 
 export const loginLocal = createAsyncThunk(
   'user/login',
-  async (payload: { email: string; password: string }) => {
+  async (payload: { email: string; password: string }, { dispatch }) => {
     const response = await api.login(payload.email, payload.password);
     const normalizedUser = mapSheetToUser(response);
-    const { user: updatedUser, reward } = processDailyLogin(normalizedUser);
     
-    localStorage.setItem(STORAGE_KEY_EMAIL, updatedUser.email);
+    localStorage.setItem(STORAGE_KEY_EMAIL, normalizedUser.email);
     
-    try {
-        await api.updateProgress(updatedUser.email, { coins: updatedUser.coins, currentXp: updatedUser.currentXp, currentHp: updatedUser.currentHp });
-        await api.updateInfo(updatedUser.email, { dailyStreak: updatedUser.streakDays, streakTakenToday: updatedUser.streakTakenToday, lastLoginDate: updatedUser.lastLoginDate });
-    } catch (e) { handleApiError(e); }
-    
-    return { user: updatedUser, reward };
+    const loginRes = await api.dailyLogin(normalizedUser.email);
+    let reward = null;
+    if (loginRes.success && !loginRes.alreadyLoggedIn) {
+         const bonusMultiplier = 1 + (loginRes.streakDays * 0.1);
+         reward = { coins: 50 * bonusMultiplier, xp: 100 * bonusMultiplier, streak: loginRes.streakDays, bonusMultiplier };
+         dispatch(addExperience({ xp: reward.xp, coins: reward.coins }));
+         normalizedUser.streakDays = loginRes.streakDays;
+    }
+
+    return { user: normalizedUser, reward };
   }
 );
 
 export const registerLocal = createAsyncThunk(
   'user/register',
-  async (payload: { email: string; password: string; username: string; hasConsent: boolean }) => {
-    await api.register(payload.email, payload.password, payload.username);
+  async (payload: { email: string; password: string; username: string; hasConsent: boolean, grade?: number }) => {
+    await api.register(payload.email, payload.password, payload.username, payload.grade || 7);
     
     const newUserState: UserProfile = {
         ...DEFAULT_USER_DATA,
         email: payload.email.toLowerCase().trim(),
         username: payload.username,
+        grade: payload.grade || 7,
         hasParentalConsent: payload.hasConsent,
         lastLoginDate: new Date().toDateString()
     } as UserProfile;
@@ -280,32 +308,17 @@ export const updateUserProfile = createAsyncThunk(
     const currentUser = state.user.currentUser;
     if (!currentUser || !currentUser.email) throw new Error("No user");
     
-    const progressUpdates: any = {};
-    if (updates.coins !== undefined) progressUpdates.coins = updates.coins;
-    if (updates.currentXp !== undefined) progressUpdates.currentXp = updates.currentXp;
-    if (updates.level !== undefined) progressUpdates.level = updates.level;
-    if (updates.avatar !== undefined) progressUpdates.avatar = updates.avatar;
-    if (updates.currentHp !== undefined) progressUpdates.currentHp = updates.currentHp;
-
-    const infoUpdates: any = {};
-    if (updates.themeColor) infoUpdates.interfaceColor = updates.themeColor;
-    if (updates.streakDays !== undefined) infoUpdates.dailyStreak = updates.streakDays;
-    
-    // Sync class
-    if (updates.heroClass) infoUpdates.heroClass = updates.heroClass;
-
-    if (updates.campaign) {
-        if (updates.campaign.currentDay) infoUpdates.currentLevel = updates.campaign.currentDay;
-        if (updates.campaign.unlockedAllies) infoUpdates.unlockedAllies = updates.campaign.unlockedAllies;
-    }
-
     try {
-        if (Object.keys(progressUpdates).length > 0) {
-            await api.updateProgress(currentUser.email, progressUpdates);
-        }
-        if (Object.keys(infoUpdates).length > 0) {
-            await api.updateInfo(currentUser.email, infoUpdates);
-        }
+        await api.updateProfile({
+            email: currentUser.email,
+            username: updates.username,
+            grade: updates.grade,
+            className: updates.className || (updates.heroClass ? updates.heroClass.toUpperCase() : undefined),
+            classEmoji: updates.classEmoji,
+            currentLocation: updates.currentLocation,
+            selectedTheme: updates.themeColor,
+            tutorialCompleted: updates.tutorialCompleted
+        });
     } catch(e) { handleApiError(e); }
     
     return updates;
@@ -319,7 +332,6 @@ export const changeHeroClass = createAsyncThunk(
         const user = state.user.currentUser;
         if (!user || !user.email) throw new Error("No user");
 
-        // Cost logic: Free if undefined, 500 if changing
         const cost = user.heroClass ? 500 : 0;
 
         if (user.coins < cost) {
@@ -328,19 +340,53 @@ export const changeHeroClass = createAsyncThunk(
         }
 
         if (cost > 0) {
-            audio.playCoins(); // Spend sound
+            audio.playCoins(); 
         }
 
         const newCoins = user.coins - cost;
         
-        // Optimistic update
         await dispatch(updateUserProfile({ 
             heroClass, 
+            className: heroClass.charAt(0).toUpperCase() + heroClass.slice(1),
             coins: newCoins 
         }));
+        
+        api.updateProgress(user.email, { coins: newCoins }).catch(console.warn);
 
         toast.success(`Класс выбран: ${heroClass.toUpperCase()}!`);
         return { heroClass, coins: newCoins };
+    }
+);
+
+export const purchaseItemAction = createAsyncThunk(
+    'user/purchaseItem',
+    async (item: { id: string, name: string, cost: number }, { getState, rejectWithValue }) => {
+        const state = getState() as RootState;
+        const user = state.user.currentUser;
+        if (!user || !user.email) return rejectWithValue("No user");
+
+        if (user.coins < item.cost) {
+            toast.error("Не хватает золота!");
+            return rejectWithValue("Insufficient funds");
+        }
+
+        try {
+            audio.playCoins();
+            // Fire API call, wait for it to complete to prevent spam
+            await api.addPurchase(user.email, item);
+            return item;
+        } catch (e: any) {
+            handleApiError(e);
+            return rejectWithValue(e.message);
+        }
+    },
+    {
+        condition: (_, { getState }) => {
+            const state = getState() as RootState;
+            if (state.user.pendingActions.purchase) {
+                return false;
+            }
+        }
     }
 );
 
@@ -351,13 +397,11 @@ export const submitDailyMood = createAsyncThunk(
         const user = state.user.currentUser;
         if (!user || !user.email) return;
 
-        const moodScore = payload.motivationScore; 
-        
         try {
-            await api.setMood(user.email, moodScore);
+            await api.setMood(user.email, payload.motivationScore);
             await api.setDailyReport(user.email, {
                 date: payload.date,
-                score: moodScore
+                score: payload.motivationScore
             }); 
         } catch(e) { handleApiError(e); }
         
@@ -365,6 +409,14 @@ export const submitDailyMood = createAsyncThunk(
         toast.success("Настроение учтено! +30 XP");
 
         return { ...payload, date: new Date().toISOString() };
+    },
+    {
+        condition: (_, { getState }) => {
+            const state = getState() as RootState;
+            if (state.user.pendingActions.setMood) {
+                return false;
+            }
+        }
     }
 );
 
@@ -410,25 +462,23 @@ export const addExperience = createAsyncThunk(
     if (didLevelUp) analytics.track('level_up', user, { oldLevel: user.level, newLevel: currentLevel });
 
     const updates = { currentXp: newXp, level: currentLevel, nextLevelXp, coins: newCoins };
-    try {
-        await api.updateProgress(user.email, updates);
-    } catch (e) { handleApiError(e); }
-
-    setTimeout(() => { dispatch(checkAchievements()); }, 500);
+    
     return { ...updates, rewardDelta: payload };
   }
 );
 
 export const completeQuestAction = createAsyncThunk(
     'user/completeQuestAction',
-    async (payload: { quest: Quest, multiplier?: number }, { getState, dispatch }) => {
+    async (payload: { quest: Quest, multiplier?: number }, { getState, dispatch, rejectWithValue }) => {
         const state = getState() as RootState;
         const user = state.user.currentUser;
-        if (!user || !user.email) return;
+        if (!user || !user.email) return rejectWithValue("No user");
+        
+        // NOTE: pending check removed from body, used in condition instead to prevent self-lock
 
         const { quest, multiplier = 1 } = payload;
         
-        const dailyLimit = 10;
+        const dailyLimit = 15;
         if ((user.dailyCompletionsCount || 0) >= dailyLimit) {
             throw new Error("Энергия иссякла! (Лимит квестов на сегодня исчерпан)");
         }
@@ -439,37 +489,31 @@ export const completeQuestAction = createAsyncThunk(
         let bonusName = '';
 
         if (user.heroClass) {
-            if (user.heroClass === 'warrior' && quest.category === 'Sport') {
-                classMultiplierXp = 1.1;
-                bonusName = 'Воин';
-            } else if (user.heroClass === 'mage' && (quest.category === 'Math' || quest.category === 'Science')) {
-                classMultiplierXp = 1.1;
-                bonusName = 'Маг';
-            } else if (user.heroClass === 'ranger' && (quest.category === 'Social' || quest.category === 'Ecology')) {
-                classMultiplierXp = 1.1;
-                bonusName = 'Следопыт';
-            } else if (user.heroClass === 'healer' && quest.category === 'Self') {
-                classMultiplierCoins = 1.1;
-                bonusName = 'Целитель';
-            }
+            if (user.heroClass === 'warrior' && quest.category === 'Sport') { classMultiplierXp = 1.1; bonusName = 'Воин'; } 
+            else if (user.heroClass === 'mage' && (quest.category === 'Math' || quest.category === 'Science')) { classMultiplierXp = 1.1; bonusName = 'Маг'; } 
+            else if (user.heroClass === 'ranger' && (quest.category === 'Social' || quest.category === 'Ecology')) { classMultiplierXp = 1.1; bonusName = 'Следопыт'; } 
+            else if (user.heroClass === 'healer' && quest.category === 'Self') { classMultiplierCoins = 1.1; bonusName = 'Целитель'; }
         }
 
         let xpReward = Math.floor(quest.xp * multiplier * classMultiplierXp);
         let coinsReward = Math.floor(quest.coins * multiplier * classMultiplierCoins);
+        const hpLost = multiplier < 0.5 ? 5 : 0; // Penalty for bad performance
+
+        // 1. Update Redux State (Optimistic)
+        const expResult = await dispatch(addExperience({ xp: xpReward, coins: coinsReward })).unwrap();
         
-        if (xpReward > 0) {
-            await dispatch(addExperience({ xp: xpReward, coins: coinsReward }));
-            if (bonusName) {
-                toast.success(`Бонус класса (${bonusName}): +10%`);
-            }
-        }
+        if (bonusName) toast.success(`Бонус класса (${bonusName}): +10%`);
+        if (hpLost > 0) toast.error(`Потеряно ${hpLost} HP из-за низкого качества!`);
 
         const historyItem: QuestHistoryItem = { 
             questId: quest.id, 
             questTitle: quest.title, 
             xpEarned: xpReward,
-            date: new Date().toISOString() 
+            date: new Date().toISOString(),
+            score: multiplier,
+            category: quest.category
         };
+        
         const newHistory = [...(user.questHistory || []), historyItem];
         const newTimers = { ...user.activeQuestTimers };
         delete newTimers[quest.id]; 
@@ -478,7 +522,8 @@ export const completeQuestAction = createAsyncThunk(
             completedQuests: (user.completedQuests || 0) + 1,
             questHistory: newHistory,
             activeQuestTimers: newTimers,
-            dailyCompletionsCount: (user.dailyCompletionsCount || 0) + 1
+            dailyCompletionsCount: (user.dailyCompletionsCount || 0) + 1,
+            currentHp: Math.max(0, user.currentHp - hpLost)
         };
 
         if (quest.isHabit) {
@@ -494,17 +539,81 @@ export const completeQuestAction = createAsyncThunk(
                 const allDone = requiredIds.every(id => completedIds.has(id));
                 if (allDone && !user.campaign.isDayComplete) {
                     updates = { ...updates, campaign: { ...user.campaign, isDayComplete: true } };
-                    audio.playQuestComplete(); // Fanfare
+                    audio.playQuestComplete(); 
                     toast.success("Все задания дня выполнены!", { autoClose: false });
                 }
             }
         }
         
+        // 2. Call Extended API v2.0
         try {
-            await api.completeQuest(user.email, quest.id, quest.title);
+            const apiPayload: CompleteQuestPayload = {
+                email: user.email,
+                questId: quest.id,
+                questName: quest.title,
+                category: quest.category,
+                rarity: quest.rarity,
+                score: multiplier, 
+                multiplier: multiplier,
+                xpEarned: xpReward,
+                coinsEarned: coinsReward,
+                hpLost: hpLost,
+                questHistoryEntry: historyItem,
+                newLevel: expResult?.level || user.level,
+                newXp: expResult?.currentXp || user.currentXp,
+                newNextLevelXp: expResult?.nextLevelXp || user.nextLevelXp,
+                newCoins: expResult?.coins || user.coins
+            };
+            await api.completeQuest(apiPayload);
         } catch (e) { handleApiError(e); }
         
         return updates;
+    },
+    {
+        condition: (_, { getState }) => {
+            const state = getState() as RootState;
+            if (state.user.pendingActions.completeQuest) {
+                return false;
+            }
+        }
+    }
+);
+
+export const completeBossBattleAction = createAsyncThunk(
+    'user/completeBossBattle',
+    async (payload: BossBattlePayload, { getState, dispatch }) => {
+        const state = getState() as RootState;
+        const user = state.user.currentUser;
+        if (!user || !user.email) return;
+
+        // Optimistic
+        if (payload.won) {
+            await dispatch(addExperience({ xp: payload.xpEarned, coins: payload.coinsEarned }));
+        }
+
+        try {
+            await api.completeBossBattle(payload);
+        } catch (e) { handleApiError(e); }
+    },
+    {
+        condition: (_, { getState }) => {
+            const state = getState() as RootState;
+            if (state.user.pendingActions.bossBattle) {
+                return false;
+            }
+        }
+    }
+);
+
+export const updateCampaignAction = createAsyncThunk(
+    'user/updateCampaignAction',
+    async (payload: { campaignId: string, currentDay: number, completedDays: number[] }, { getState }) => {
+        const state = getState() as RootState;
+        const user = state.user.currentUser;
+        if (!user || !user.email) return;
+        try {
+            await api.updateCampaign(user.email, payload.campaignId, payload.currentDay, payload.completedDays);
+        } catch (e) { handleApiError(e); }
     }
 );
 
@@ -524,6 +633,7 @@ export const advanceCampaignDay = createAsyncThunk(
         
         if (allyUnlocked && !newAllies.includes(allyUnlocked)) {
             newAllies.push(allyUnlocked);
+            api.unlockAlly(user.email, allyUnlocked).catch(console.warn);
         }
 
         await dispatch(addExperience({ xp: 100, coins: 50 }));
@@ -537,6 +647,13 @@ export const advanceCampaignDay = createAsyncThunk(
         };
 
         await dispatch(updateUserProfile(updates));
+        // Sync Campaign
+        await dispatch(updateCampaignAction({ 
+            campaignId: 'main', 
+            currentDay: nextDay > 14 ? 14 : nextDay, 
+            completedDays: [] 
+        }));
+
         toast.info("День завершен! Сюжет продолжается...", { icon: () => "📜" });
         return updates;
     }
@@ -594,7 +711,7 @@ export const checkAchievements = createAsyncThunk(
                 newUnlocked.push(ach.id);
                 totalRewardXp += ach.rewardXp;
                 totalRewardCoins += ach.rewardCoins;
-                // Fire and forget, but catch errors to prevent console spam
+                // Fire and forget
                 api.addAchievement(user.email, ach).catch(e => console.warn("Achievement sync delay"));
                 audio.playQuestComplete(); // Achievement sound
                 toast.info(`🏆 Получено достижение: ${ach.title}!`, { theme: 'dark' });
@@ -607,9 +724,8 @@ export const checkAchievements = createAsyncThunk(
                 coins: user.coins + totalRewardCoins, 
                 achievements: [...user.achievements, ...newUnlocked] 
             };
-            try {
-                await api.updateProgress(user.email, { currentXp: updates.currentXp, coins: updates.coins });
-            } catch (e) { handleApiError(e); }
+            // Sync progress for achievement rewards
+            api.updateProgress(user.email, { currentXp: updates.currentXp, coins: updates.coins }).catch(console.warn);
             return updates;
         }
         return null;
@@ -636,20 +752,7 @@ const userSlice = createSlice({
     popRewardAnimation: (state) => {
         state.pendingRewardAnimations.shift(); // Remove first item
     },
-    purchaseItem: (state, action: PayloadAction<{ item: {id: string, name: string, cost: number} }>) => {
-       if (!state.currentUser || !state.currentUser.email) return;
-       const { item } = action.payload;
-       if (state.currentUser.coins >= item.cost) {
-         state.currentUser.coins -= item.cost;
-         if (!state.currentUser.inventory) state.currentUser.inventory = [];
-         state.currentUser.inventory.push(item.id);
-         
-         audio.playCoins(); // Purchase sound
-         // Async
-         api.updateProgress(state.currentUser.email, { coins: state.currentUser.coins }).catch(console.warn);
-         api.addPurchase(state.currentUser.email, item).catch(console.warn);
-       }
-    },
+    // purchaseItem Removed - replaced by Thunk
     equipSkin: (state, action) => {
        if (state.currentUser && state.currentUser.email) {
          state.currentUser.avatar = action.payload;
@@ -660,7 +763,7 @@ const userSlice = createSlice({
     setThemeColor: (state, action: PayloadAction<ThemeColor>) => {
        if (state.currentUser && state.currentUser.email) {
          state.currentUser.themeColor = action.payload;
-         api.updateInfo(state.currentUser.email, { interfaceColor: action.payload }).catch(console.warn);
+         api.updateProfile({ email: state.currentUser.email, selectedTheme: action.payload }).catch(console.warn);
        }
     },
     adminSetDay: (state, action: PayloadAction<number>) => {
@@ -684,29 +787,54 @@ const userSlice = createSlice({
   },
   extraReducers: (builder) => {
     builder
+      // Init Auth
+      .addCase(initAuth.pending, (state) => { state.pendingActions.auth = true; })
       .addCase(initAuth.fulfilled, (state, action) => {
+        state.pendingActions.auth = false;
         if (action.payload) {
             state.currentUser = action.payload.user;
             state.dailyRewardPopup = action.payload.reward;
         }
         state.loading = false;
       })
+      .addCase(initAuth.rejected, (state) => { state.pendingActions.auth = false; })
+
+      // Register/Login
+      .addCase(registerLocal.pending, (state) => { state.pendingActions.auth = true; })
       .addCase(registerLocal.fulfilled, (state, action) => { 
+          state.pendingActions.auth = false;
           state.currentUser = action.payload.user;
           state.dailyRewardPopup = action.payload.reward;
       })
+      .addCase(registerLocal.rejected, (state) => { state.pendingActions.auth = false; })
+
+      .addCase(loginLocal.pending, (state) => { state.pendingActions.auth = true; })
       .addCase(loginLocal.fulfilled, (state, action) => { 
+          state.pendingActions.auth = false;
           state.currentUser = action.payload.user; 
           state.dailyRewardPopup = action.payload.reward;
       })
+      .addCase(loginLocal.rejected, (state) => { state.pendingActions.auth = false; })
+
+      .addCase(loginDemo.pending, (state) => { state.pendingActions.auth = true; })
       .addCase(loginDemo.fulfilled, (state, action) => { 
+          state.pendingActions.auth = false;
           state.currentUser = action.payload.user;
           state.dailyRewardPopup = action.payload.reward;
       })
+      .addCase(loginDemo.rejected, (state) => { state.pendingActions.auth = false; })
+
       .addCase(logoutLocal.fulfilled, (state) => { state.currentUser = null; })
+
+      // Updates
+      .addCase(updateUserProfile.pending, (state) => { state.pendingActions.updateProfile = true; })
       .addCase(updateUserProfile.fulfilled, (state, action) => {
+        state.pendingActions.updateProfile = false;
         if (state.currentUser) state.currentUser = { ...state.currentUser, ...action.payload };
       })
+      .addCase(updateUserProfile.rejected, (state) => { state.pendingActions.updateProfile = false; })
+
+      // Experience
       .addCase(addExperience.fulfilled, (state, action) => {
          if (state.currentUser && action.payload) {
              state.currentUser = { ...state.currentUser, ...action.payload as any };
@@ -721,16 +849,35 @@ const userSlice = createSlice({
              }
          }
       })
+
+      // Quest Flow
       .addCase(startQuestAction.fulfilled, (state, action) => {
           if (state.currentUser && action.payload) {
               state.currentUser = { ...state.currentUser, ...action.payload };
           }
       })
+      .addCase(completeQuestAction.pending, (state) => { state.pendingActions.completeQuest = true; })
       .addCase(completeQuestAction.fulfilled, (state, action) => {
+          state.pendingActions.completeQuest = false;
           if (state.currentUser && action.payload) {
               state.currentUser = { ...state.currentUser, ...action.payload };
           }
       })
+      .addCase(completeQuestAction.rejected, (state) => { state.pendingActions.completeQuest = false; })
+
+      // Purchase
+      .addCase(purchaseItemAction.pending, (state) => { state.pendingActions.purchase = true; })
+      .addCase(purchaseItemAction.fulfilled, (state, action) => {
+          state.pendingActions.purchase = false;
+          if (state.currentUser && action.payload) {
+              state.currentUser.coins -= action.payload.cost;
+              if (!state.currentUser.inventory) state.currentUser.inventory = [];
+              state.currentUser.inventory.push(action.payload.id);
+          }
+      })
+      .addCase(purchaseItemAction.rejected, (state) => { state.pendingActions.purchase = false; })
+
+      // Campaign
       .addCase(advanceCampaignDay.fulfilled, (state, action) => {
           if (state.currentUser && action.payload) {
               state.currentUser = { ...state.currentUser, ...action.payload };
@@ -741,7 +888,16 @@ const userSlice = createSlice({
               state.currentUser = { ...state.currentUser, ...action.payload as any };
           }
       })
+
+      // Boss Battle
+      .addCase(completeBossBattleAction.pending, (state) => { state.pendingActions.bossBattle = true; })
+      .addCase(completeBossBattleAction.fulfilled, (state) => { state.pendingActions.bossBattle = false; })
+      .addCase(completeBossBattleAction.rejected, (state) => { state.pendingActions.bossBattle = false; })
+
+      // Mood
+      .addCase(submitDailyMood.pending, (state) => { state.pendingActions.setMood = true; })
       .addCase(submitDailyMood.fulfilled, (state, action) => {
+          state.pendingActions.setMood = false;
           if (state.currentUser && action.payload) {
               state.currentUser.lastDailyMood = action.payload.date;
               if(!state.currentUser.surveyHistory) state.currentUser.surveyHistory = [];
@@ -754,6 +910,8 @@ const userSlice = createSlice({
               });
           }
       })
+      .addCase(submitDailyMood.rejected, (state) => { state.pendingActions.setMood = false; })
+
       .addCase(checkAchievements.fulfilled, (state, action) => {
           if (state.currentUser && action.payload) {
               state.currentUser = { ...state.currentUser, ...action.payload as any };
@@ -766,8 +924,11 @@ const userSlice = createSlice({
   }
 });
 
+// Selectors
+export const selectIsPending = (key: keyof PendingActions) => (state: RootState) => state.user.pendingActions[key];
+
 export const { 
-    setUser, clearUser, purchaseItem, equipSkin, submitSurvey, setThemeColor, 
+    setUser, clearUser, equipSkin, submitSurvey, setThemeColor, 
     adminSetDay, adminCompleteDay, adminResetCampaign, closeDailyRewardModal,
     popRewardAnimation 
 } = userSlice.actions;

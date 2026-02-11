@@ -68,7 +68,7 @@ const Navbar: React.FC = () => {
           </Link>
 
           {/* Desktop Menu */}
-          <div className="hidden md:flex items-center space-x-2 relative z-10">
+          <div className="tour-step-nav hidden md:flex items-center space-x-2 relative z-10">
             {navLinks.map((link) => (
               (link.public || isAuthenticated) && (
                 <Link
