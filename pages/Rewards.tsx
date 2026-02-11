@@ -1,8 +1,8 @@
-
 import React, { useState } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { RootState, AppDispatch } from '../store';
 import { purchaseItemAction, selectIsPending } from '../store/userSlice';
+import { checkAchievements } from '../store/achievementsSlice';
 import { Coins, ShoppingBag, Lock, Check, Zap, Target, Sparkles, Shield, Coffee, Gamepad2, Pizza, X, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import confetti from 'canvas-confetti';
@@ -23,6 +23,8 @@ const Rewards: React.FC = () => {
       dispatch(purchaseItemAction(item)).unwrap().then(() => {
           setPurchasedItem({ name: item.name, icon: item.icon });
           confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 } });
+          // Check achievements after purchase (e.g. coin threshold or items count)
+          dispatch(checkAchievements());
       });
     }
   };

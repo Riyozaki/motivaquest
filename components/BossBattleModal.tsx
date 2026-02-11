@@ -5,7 +5,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Skull, Crown, AlertCircle, Heart, Zap, Sword, Battery, Loader2 } from 'lucide-react';
 import { useDispatch, useSelector } from 'react-redux';
 import { AppDispatch, RootState } from '../store';
-import { finishCampaign, selectIsPending } from '../store/userSlice';
+import { selectIsPending } from '../store/userSlice';
+import { finishCampaign } from '../store/campaignSlice';
 import confetti from 'canvas-confetti';
 import LoadingOverlay from './LoadingOverlay';
 

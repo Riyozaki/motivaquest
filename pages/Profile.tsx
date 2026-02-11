@@ -1,9 +1,8 @@
-
 import React, { useState, useRef, useMemo } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { Award, Zap, Coins, CheckCircle, Sword, Edit2, Shield, Heart, Target, Sparkles, Map, Package, Save, TrendingUp, Calendar, Palette, History, Share2, Download, Upload, User, Crown, AlertCircle } from 'lucide-react';
 import { RootState, AppDispatch } from '../store';
-import { updateUserProfile, equipSkin, importSaveData, setThemeColor, changeHeroClass } from '../store/userSlice';
+import { updateUserProfile, equipSkinAction, importSaveData, setThemeColor, changeHeroClass, selectIsPending } from '../store/userSlice';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Chart as ChartJS,
@@ -21,6 +20,7 @@ import {
 import { Bar, Line } from 'react-chartjs-2';
 import { ThemeColor, HeroClass } from '../types';
 import { toast } from 'react-toastify';
+import LoadingOverlay from '../components/LoadingOverlay';
 
 ChartJS.register(
   CategoryScale,
@@ -61,6 +61,7 @@ const Profile: React.FC = () => {
   const shopItems = useSelector((state: RootState) => state.rewards.shopItems);
   const achievementsList = useSelector((state: RootState) => state.rewards.achievements);
   const questsList = useSelector((state: RootState) => state.quests.list);
+  const isEquipping = useSelector(selectIsPending('equipSkin'));
   const dispatch = useDispatch<AppDispatch>();
   
   const [activeTab, setActiveTab] = useState<'stats' | 'inventory' | 'achievements' | 'data'>('stats');
@@ -83,14 +84,19 @@ const Profile: React.FC = () => {
     for (let i = 6; i >= 0; i--) {
         const d = new Date();
         d.setDate(d.getDate() - i);
-        const dateStr = d.toISOString().split('T')[0]; // YYYY-MM-DD
+        // Normalize to local date string for comparison to avoid timezone mismatch
+        const dateStr = d.toLocaleDateString('ru-RU'); // DD.MM.YYYY format usually or locale dependent
         
-        // Format label (e.g., "Mon", "12.05")
-        const label = d.toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric' });
+        // Format label (e.g., "Mon, 12.05")
+        const label = d.toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'numeric' });
         labels.push(label);
 
         // Find history items for this day
-        const dayHistory = (user.questHistory || []).filter(h => h.date.startsWith(dateStr));
+        // We convert both to local date string to match day-to-day
+        const dayHistory = (user.questHistory || []).filter(h => {
+            const hDate = new Date(h.date);
+            return hDate.toLocaleDateString('ru-RU') === dateStr;
+        });
         
         // Count quests
         const qCount = dayHistory.length;
@@ -147,7 +153,7 @@ const Profile: React.FC = () => {
       datasets: [{
           label: 'Выполнено квестов',
           data: statsData.quests,
-          backgroundColor: primaryColorHex, // Solid HEX color fixes the black bar issue
+          backgroundColor: primaryColorHex,
           borderColor: primaryColorHex,
           borderWidth: 1,
           borderRadius: 6,
@@ -160,12 +166,12 @@ const Profile: React.FC = () => {
       datasets: [{
           label: 'Заработано золота',
           data: statsData.coins,
-          borderColor: '#f59e0b', // Amber
+          borderColor: '#f59e0b',
           backgroundColor: 'rgba(245, 158, 11, 0.2)',
           pointBackgroundColor: '#fbbf24',
           pointBorderColor: '#fff',
           pointRadius: 4,
-          tension: 0.4, // Smooth curve
+          tension: 0.4,
           fill: true
       }]
   };
@@ -173,12 +179,18 @@ const Profile: React.FC = () => {
 
   if (!user) return null;
 
+  const mySkins = shopItems.filter(item => item.type === 'skin' && user.inventory?.includes(item.id));
+
   const handleSave = () => {
     dispatch(updateUserProfile({ username: editName }) as any);
     setIsEditing(false);
   };
 
-  const handleEquip = (skinValue: string) => dispatch(equipSkin(skinValue));
+  const handleEquip = (skinValue: string) => {
+      if (!isEquipping) {
+          dispatch(equipSkinAction(skinValue));
+      }
+  };
 
   const handleClassSelect = async (cls: HeroClass) => {
       try {
@@ -218,11 +230,24 @@ const Profile: React.FC = () => {
       toast.success("Твои подвиги скопированы! Поделись ими.");
   };
 
-  const CurrentAvatarData = AVATAR_OPTIONS.find(a => a.id === user.avatar) || AVATAR_OPTIONS[0];
+  // Safe fallback if user.avatar maps to nothing (e.g. premium skin ID not in default list)
+  // For visuals, if it's a premium skin, we might need a fallback or map it.
+  // Assuming shopItems has the mapping.
+  let CurrentAvatarData = AVATAR_OPTIONS.find(a => a.id === user.avatar);
+  if (!CurrentAvatarData) {
+      // Try to find in owned skins
+      const premiumSkin = mySkins.find(s => s.value === user.avatar);
+      if (premiumSkin) {
+          // Map premium skin value back to a basic class for Icon/Color
+          // E.g. 'rogue' -> find rogue in AVATAR_OPTIONS
+          CurrentAvatarData = AVATAR_OPTIONS.find(a => a.id === premiumSkin.value);
+      }
+  }
+  // Ultimate fallback
+  if (!CurrentAvatarData) CurrentAvatarData = AVATAR_OPTIONS[0];
+
   const CurrentIcon = CurrentAvatarData.icon;
   const currentHeroClass = HERO_CLASSES.find(c => c.id === user.heroClass);
-
-  const mySkins = shopItems.filter(item => item.type === 'skin' && user.inventory?.includes(item.id));
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -367,23 +392,41 @@ const Profile: React.FC = () => {
         className="glass-panel p-6 rounded-3xl min-h-[300px]"
       >
           {activeTab === 'inventory' && (
+              <LoadingOverlay isLoading={isEquipping} message="Экипировка...">
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-                  {AVATAR_OPTIONS.map(skin => (
-                      <div key={skin.id} onClick={() => handleEquip(skin.id)} 
-                        className={`p-4 rounded-xl border-2 cursor-pointer transition-all flex flex-col items-center ${user.avatar === skin.id ? 'border-primary-500 bg-primary-500/10' : 'border-slate-700 hover:border-slate-500'}`}>
-                          <skin.icon size={32} className="mb-2 text-slate-200" />
-                          <span className="text-xs font-bold text-slate-400">{skin.label}</span>
-                          {user.avatar === skin.id && <span className="text-[10px] text-primary-400 mt-1">EQUIPPED</span>}
+                  {/* Default Skins */}
+                  {AVATAR_OPTIONS.map(skin => {
+                      // It is equipped if avatar matches ID AND user doesn't own a premium skin that uses this ID value.
+                      // This ensures if I own "Skin Ninja" (rogue), the "Default Rogue" card is NOT highlighted.
+                      const isEquipped = user.avatar === skin.id && !mySkins.some(s => s.value === skin.id);
+                      return (
+                          <div key={skin.id} onClick={() => handleEquip(skin.id)} 
+                            className={`p-4 rounded-xl border-2 cursor-pointer transition-all flex flex-col items-center relative overflow-hidden ${isEquipped ? 'border-primary-500 bg-primary-500/10' : 'border-slate-700 hover:border-slate-500'}`}>
+                              <skin.icon size={32} className="mb-2 text-slate-200" />
+                              <span className="text-xs font-bold text-slate-400">{skin.label}</span>
+                              {isEquipped && <span className="text-[10px] text-primary-400 mt-1">ЭКИПИРОВАНО</span>}
+                          </div>
+                      )
+                  })}
+                  {/* Premium Skins */}
+                  {mySkins.map(skin => {
+                      const isEquipped = user.avatar === skin.value;
+                      return (
+                          <div key={skin.id} onClick={() => handleEquip(skin.value)}
+                             className={`p-4 rounded-xl border-2 cursor-pointer transition-all flex flex-col items-center relative overflow-hidden ${isEquipped ? 'border-primary-500 bg-primary-500/10' : 'border-slate-700 hover:border-slate-500'}`}>
+                              <User size={32} className="mb-2 text-primary-300" />
+                              <span className="text-xs font-bold text-slate-400">{skin.name}</span>
+                              {isEquipped && <span className="text-[10px] text-primary-400 mt-1">ЭКИПИРОВАНО</span>}
+                          </div>
+                      )
+                  })}
+                  {mySkins.length === 0 && (
+                      <div className="col-span-full text-center text-slate-500 py-8 text-sm">
+                          У вас пока нет купленных скинов. Загляните в лавку!
                       </div>
-                  ))}
-                  {mySkins.map(skin => (
-                      <div key={skin.id} onClick={() => handleEquip(skin.value)}
-                         className={`p-4 rounded-xl border-2 cursor-pointer transition-all flex flex-col items-center ${user.avatar === skin.value ? 'border-primary-500 bg-primary-500/10' : 'border-slate-700 hover:border-slate-500'}`}>
-                          <User size={32} className="mb-2 text-primary-300" />
-                          <span className="text-xs font-bold text-slate-400">{skin.name}</span>
-                      </div>
-                  ))}
+                  )}
               </div>
+              </LoadingOverlay>
           )}
 
           {activeTab === 'achievements' && (

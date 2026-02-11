@@ -1,8 +1,7 @@
-
 import React, { useEffect, useRef, useState } from 'react';
 import { HashRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import { Provider, useSelector } from 'react-redux';
-import { store, RootState } from './store';
+import { Provider, useSelector, useDispatch } from 'react-redux';
+import { store, RootState, AppDispatch } from './store';
 import Navbar from './components/Navbar';
 import Home from './pages/Home';
 import Login from './pages/Login';
@@ -15,6 +14,7 @@ import Admin from './pages/Admin';
 import AdminControls from './components/AdminControls';
 import DailyRewardModal from './components/DailyRewardModal';
 import FloatingReward from './components/FloatingReward';
+import SyncIndicator from './components/SyncIndicator';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { ToastContainer, toast } from 'react-toastify';
@@ -23,6 +23,8 @@ import ErrorBoundary from './components/ErrorBoundary';
 import 'chart.js/auto'; 
 import { AnimatePresence } from 'framer-motion';
 import { ThemeColor } from './types';
+import { regenerateStats } from './store/userSlice';
+import { api } from './services/api';
 
 // Theme Colors Config
 const THEME_COLORS: Record<ThemeColor, Record<number, string>> = {
@@ -95,7 +97,9 @@ const AnimatedRoutes: React.FC = () => {
 };
 
 const AppContent: React.FC = () => {
+  const dispatch = useDispatch<AppDispatch>();
   const user = useSelector((state: RootState) => state.user.currentUser);
+  const nextRegenTime = useSelector((state: RootState) => state.user.nextRegenTime);
   const prevLevelRef = useRef<number | undefined>(undefined);
   const location = useLocation();
   const [runTour, setRunTour] = useState(false);
@@ -124,6 +128,30 @@ const AppContent: React.FC = () => {
       prevLevelRef.current = user.level;
     }
   }, [user?.level]);
+
+  // Regen Tick
+  useEffect(() => {
+      const interval = setInterval(() => {
+          if (Date.now() >= nextRegenTime) {
+              dispatch(regenerateStats());
+          }
+      }, 1000);
+      return () => clearInterval(interval);
+  }, [nextRegenTime, dispatch]);
+
+  // Online Status Listener for Sync
+  useEffect(() => {
+      const handleOnline = () => {
+          toast.info("Сеть восстановлена. Синхронизация...", { autoClose: 2000 });
+          api.flushQueue();
+      };
+      
+      // Attempt flush on mount
+      api.flushQueue();
+
+      window.addEventListener('online', handleOnline);
+      return () => window.removeEventListener('online', handleOnline);
+  }, []);
 
   // Start tour ONLY if user has a grade (Modal closed)
   useEffect(() => {
@@ -177,6 +205,7 @@ const AppContent: React.FC = () => {
       
       <DailyRewardModal />
       <FloatingReward />
+      <SyncIndicator />
       <AdminControls />
 
       <footer className="py-8 text-center text-sm text-slate-500 border-t border-slate-800/50 backdrop-blur-sm">

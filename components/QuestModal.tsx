@@ -1,11 +1,11 @@
-
 import React, { useState, useEffect, useCallback } from 'react';
 import Modal from 'react-modal';
 import { Quest, Task } from '../types';
 import { X, Coins, Star, Trophy, Volume2, StopCircle, Play, Clock, Zap, Loader2 } from 'lucide-react';
 import { useDispatch, useSelector } from 'react-redux';
-import { completeQuestAction, startQuestAction, selectIsPending } from '../store/userSlice';
-import { markQuestCompleted, fetchQuests } from '../store/questsSlice';
+import { startQuestAction, selectIsPending } from '../store/userSlice';
+import { completeQuestAction, markQuestCompleted, fetchQuests } from '../store/questsSlice';
+import { checkAchievements } from '../store/achievementsSlice';
 import { toast } from 'react-toastify';
 import { motion, AnimatePresence } from 'framer-motion';
 import { RootState, AppDispatch } from '../store';
@@ -152,7 +152,7 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose, multipl
       }
 
       let totalScore = 0;
-      Object.values(taskResults).forEach(res => {
+      Object.values(taskResults).forEach((res: TaskResult) => {
           if (res.isCorrect) totalScore += 1;
           else if (res.isPartial) totalScore += 0.5;
       });
@@ -178,6 +178,9 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose, multipl
           setCompleted(true);
           dispatch(markQuestCompleted(quest.id));
           dispatch(fetchQuests());
+          
+          // Check for unlocked achievements
+          dispatch(checkAchievements());
           
           if (finalMultiplier >= 1.0) {
               toast.success(`Успех! Бонус: x${multiplier}`);

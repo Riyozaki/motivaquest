@@ -1,14 +1,15 @@
+
 import React, { useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { RootState, AppDispatch } from '../store';
 import { 
     addExperience, 
-    completeQuestAction, 
     adminSetDay, 
     adminCompleteDay, 
     adminResetCampaign,
-    advanceCampaignDay
 } from '../store/userSlice';
+import { completeQuestAction } from '../store/questsSlice';
+import { advanceCampaignDay } from '../store/campaignSlice';
 import { markQuestCompleted } from '../store/questsSlice';
 import { CAMPAIGN_DATA } from '../store/questsSlice';
 import { Settings, Zap, ArrowRight, CheckCircle, RotateCcw, Coins, ChevronUp, ChevronDown, Lock, Unlock } from 'lucide-react';
