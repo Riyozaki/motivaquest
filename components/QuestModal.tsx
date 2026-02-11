@@ -1,13 +1,23 @@
+
 import React, { useState, useEffect } from 'react';
 import Modal from 'react-modal';
-import { Quest } from '../types';
-import { X, CheckCircle, AlertCircle, Coins, Star, Trophy, Volume2, StopCircle, Play, Clock, Heart, Check, MinusCircle, XCircle, Zap } from 'lucide-react';
+import { Quest, Task } from '../types';
+import { X, Coins, Star, Trophy, Volume2, StopCircle, Play, Clock, Zap } from 'lucide-react';
 import { useDispatch, useSelector } from 'react-redux';
 import { completeQuestAction, startQuestAction } from '../store/userSlice';
 import { markQuestCompleted } from '../store/questsSlice';
 import { toast } from 'react-toastify';
 import { motion, AnimatePresence } from 'framer-motion';
 import { RootState, AppDispatch } from '../store';
+
+// Import new task components
+import QuizTask from './tasks/QuizTask';
+import InputTask from './tasks/InputTask';
+import TimerTask from './tasks/TimerTask';
+import ChecklistTask from './tasks/ChecklistTask';
+import OrderingTask from './tasks/OrderingTask';
+import MatchingTask from './tasks/MatchingTask';
+import YesNoTask from './tasks/YesNoTask';
 
 Modal.setAppElement('#root');
 
@@ -17,27 +27,29 @@ interface QuestModalProps {
   onClose: () => void;
 }
 
+interface TaskResult {
+    isCorrect: boolean;
+    isPartial: boolean;
+}
+
 const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose }) => {
   const dispatch = useDispatch<AppDispatch>();
   const user = useSelector((state: RootState) => state.user.currentUser);
   
-  // Stores "yes", "partial", "no" or null for each task
-  const [taskResponses, setTaskResponses] = useState<{ [key: number]: 'yes' | 'partial' | 'no' | null }>({});
+  // Store results for each task ID
+  const [taskResults, setTaskResults] = useState<{ [key: number]: TaskResult }>({});
   const [completed, setCompleted] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   
   const startTime = quest && user?.activeQuestTimers ? user.activeQuestTimers[quest.id] : null;
   const isStarted = !!startTime;
-  
-  // Admin Check
   const isAdmin = user?.role === 'admin' || user?.uid === 'demo_hero_id';
   
-  // Calculate Time
   const [timeLeft, setTimeLeft] = useState(0);
 
   useEffect(() => {
     if (isOpen && quest) {
-      setTaskResponses({});
+      setTaskResults({});
       setCompleted(false);
     } else {
       window.speechSynthesis.cancel();
@@ -45,7 +57,6 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose }) => {
     }
   }, [isOpen, quest]);
 
-  // Timer Logic
   useEffect(() => {
       if (!quest || !isStarted) {
           setTimeLeft(0);
@@ -97,35 +108,68 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose }) => {
       return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
 
+  const handleTaskAnswer = (taskId: number, isCorrect: boolean, isPartial: boolean = false) => {
+      setTaskResults(prev => ({
+          ...prev,
+          [taskId]: { isCorrect, isPartial }
+      }));
+  };
+
+  const renderTask = (task: Task) => {
+      // If task is answered, maybe show a "Done" state overlay or disable it?
+      // For now, the components handle their own "submitted" state mostly.
+      switch (task.type) {
+        case 'quiz': return <QuizTask key={task.id} task={task} onAnswer={handleTaskAnswer} />;
+        case 'text_input':
+        case 'number_input': return <InputTask key={task.id} task={task} onAnswer={handleTaskAnswer} />;
+        case 'timer_challenge': return <TimerTask key={task.id} task={task} onAnswer={handleTaskAnswer} />;
+        case 'checklist': return <ChecklistTask key={task.id} task={task} onAnswer={handleTaskAnswer} />;
+        case 'ordering': return <OrderingTask key={task.id} task={task} onAnswer={handleTaskAnswer} />;
+        case 'matching': return <MatchingTask key={task.id} task={task} onAnswer={handleTaskAnswer} />;
+        case 'yes_no':
+        default: return <YesNoTask key={task.id} task={task} onAnswer={handleTaskAnswer} />;
+      }
+  };
+
   const handleCompleteFlow = () => {
-      // Admin Bypass
       if (timeLeft > 0 && !isAdmin) {
           toast.warning(`Не так быстро! Подожди ещё ${formatTime(timeLeft)}.`);
           return;
       }
 
-      // Check if all tasks have a response
-      const allAnswered = quest.tasks.every(task => taskResponses[task.id]);
-      if (!allAnswered) {
-          toast.info("Отметь выполнение всех пунктов.");
-          return;
-      }
-
-      // Check if any is "no"
-      const hasNo = Object.values(taskResponses).includes('no');
-      if (hasNo) {
-          toast.error("Выполни все задания, чтобы получить награду.");
-          return;
-      }
-
-      // Check for partial
-      const hasPartial = Object.values(taskResponses).includes('partial');
-      const multiplier = hasPartial ? 0.5 : 1;
+      // Check if all tasks have a result
+      const allTasks = quest.tasks;
+      const completedCount = Object.keys(taskResults).length;
       
-      // Auto Complete
+      // Some tasks like Checklist might not fire "onAnswer" until interacted with.
+      // We assume user must interact with all tasks.
+      if (completedCount < allTasks.length) {
+          toast.info("Выполни все части задания!");
+          return;
+      }
+
+      // Calculate Score
+      let totalScore = 0;
+      Object.values(taskResults).forEach(res => {
+          if (res.isCorrect) totalScore += 1;
+          else if (res.isPartial) totalScore += 0.5;
+      });
+
+      const finalMultiplier = totalScore / allTasks.length;
+
+      if (finalMultiplier === 0) {
+          toast.error("Ты провалил все задания. Попробуй снова!");
+          // Optional: allow retry without closing?
+          return;
+      }
+
       setCompleted(true);
       dispatch(markQuestCompleted(quest.id));
-      dispatch(completeQuestAction({ quest, multiplier })); 
+      dispatch(completeQuestAction({ quest, multiplier: finalMultiplier })); 
+      
+      if (finalMultiplier === 1.0) {
+          toast.success("Идеальное прохождение! +20% Бонус!");
+      }
   };
 
   return (
@@ -175,11 +219,6 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose }) => {
                  {isStarted && timeLeft > 0 && (
                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest flex items-center ${isAdmin ? 'bg-red-900/40 text-red-400 border border-red-500/30' : 'bg-amber-900/40 text-amber-400 border border-amber-500/30 animate-pulse'}`}>
                          <Clock size={10} className="mr-1"/> {isAdmin ? 'Timer Bypass' : formatTime(timeLeft)}
-                     </span>
-                 )}
-                 {isStarted && timeLeft === 0 && !completed && !quest.completed && (
-                     <span className="bg-emerald-900/40 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest">
-                         Готово к сдаче
                      </span>
                  )}
              </div>
@@ -232,63 +271,8 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose }) => {
                          </button>
                      </div>
                  ) : (
-                     <div className="space-y-4">
-                        {quest.tasks.map((task, idx) => (
-                            <motion.div 
-                                initial={{ x: -20, opacity: 0 }}
-                                animate={{ x: 0, opacity: 1 }}
-                                transition={{ delay: idx * 0.1 }}
-                                key={task.id} 
-                                className="bg-slate-800/60 p-4 md:p-5 rounded-xl border border-slate-700/50"
-                            >
-                                <div className="flex justify-between items-center mb-3">
-                                    <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Руна {idx + 1}</span>
-                                    {taskResponses[task.id] === 'yes' && <CheckCircle className="text-emerald-500 h-5 w-5" />}
-                                    {taskResponses[task.id] === 'partial' && <MinusCircle className="text-amber-500 h-5 w-5" />}
-                                    {taskResponses[task.id] === 'no' && <XCircle className="text-red-500 h-5 w-5" />}
-                                </div>
-                                <p className="font-medium text-slate-200 mb-4 text-base md:text-lg">{task.question}</p>
-                                
-                                <div className="grid grid-cols-3 gap-2">
-                                    <button
-                                        onClick={() => setTaskResponses(prev => ({...prev, [task.id]: 'yes'}))}
-                                        className={`py-3 rounded-lg font-bold text-sm transition-all flex flex-col items-center justify-center gap-1 border-2
-                                            ${taskResponses[task.id] === 'yes' 
-                                                ? 'bg-emerald-600/20 border-emerald-500 text-emerald-400' 
-                                                : 'bg-slate-900 border-slate-700 text-slate-400 hover:border-emerald-500/50 hover:text-emerald-300'
-                                            }
-                                        `}
-                                    >
-                                        <Check size={18} />
-                                        Да
-                                    </button>
-                                    <button
-                                        onClick={() => setTaskResponses(prev => ({...prev, [task.id]: 'partial'}))}
-                                        className={`py-3 rounded-lg font-bold text-sm transition-all flex flex-col items-center justify-center gap-1 border-2
-                                            ${taskResponses[task.id] === 'partial' 
-                                                ? 'bg-amber-600/20 border-amber-500 text-amber-400' 
-                                                : 'bg-slate-900 border-slate-700 text-slate-400 hover:border-amber-500/50 hover:text-amber-300'
-                                            }
-                                        `}
-                                    >
-                                        <MinusCircle size={18} />
-                                        Частично
-                                    </button>
-                                    <button
-                                        onClick={() => setTaskResponses(prev => ({...prev, [task.id]: 'no'}))}
-                                        className={`py-3 rounded-lg font-bold text-sm transition-all flex flex-col items-center justify-center gap-1 border-2
-                                            ${taskResponses[task.id] === 'no' 
-                                                ? 'bg-red-600/20 border-red-500 text-red-400' 
-                                                : 'bg-slate-900 border-slate-700 text-slate-400 hover:border-red-500/50 hover:text-red-300'
-                                            }
-                                        `}
-                                    >
-                                        <X size={18} />
-                                        Нет
-                                    </button>
-                                </div>
-                            </motion.div>
-                        ))}
+                     <div className="space-y-6">
+                        {quest.tasks.map(task => renderTask(task))}
                      </div>
                  )}
               </div>
@@ -312,7 +296,7 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose }) => {
                        }
                    `}
                 >
-                    {timeLeft > 0 && isAdmin ? <><Zap size={16} className="inline mr-2" /> Force Complete</> : timeLeft > 0 ? `Подожди: ${formatTime(timeLeft)}` : 'Отметить как готовое'}
+                    {timeLeft > 0 && isAdmin ? <><Zap size={16} className="inline mr-2" /> Force Complete</> : timeLeft > 0 ? `Подожди: ${formatTime(timeLeft)}` : 'Завершить Квест'}
                 </button>
             </div>
         )}

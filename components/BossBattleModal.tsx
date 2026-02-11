@@ -1,7 +1,8 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import Modal from 'react-modal';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Heart, Sword, Shield, Zap, Skull, Crown, Sparkles, BookOpen, Dumbbell, Calculator, AlertCircle } from 'lucide-react';
+import { Skull, Crown, AlertCircle, Heart, Zap, Sword } from 'lucide-react';
 import { useDispatch } from 'react-redux';
 import { AppDispatch } from '../store';
 import { finishCampaign } from '../store/userSlice';
@@ -9,293 +10,182 @@ import confetti from 'canvas-confetti';
 
 Modal.setAppElement('#root');
 
+const BOSS_QUESTIONS = [
+  // MATH
+  { q: "9 × 7 = ?", opts: ["63","56","72","81"], correct: 0, cat: "math", dmg: 25 },
+  { q: "√169 = ?", opts: ["13","11","12","14"], correct: 0, cat: "math", dmg: 30 },
+  { q: "15% от 400 = ?", opts: ["60","40","80","45"], correct: 0, cat: "math", dmg: 30 },
+  { q: "(a+b)² = ?", opts: ["a²+2ab+b²","a²+b²","2ab","a²+ab+b²"], correct: 0, cat: "math", dmg: 35 },
+  { q: "Площадь круга: S = ?", opts: ["πr²","2πr","πd","r²"], correct: 0, cat: "math", dmg: 35 },
+  { q: "x²-25 = ?", opts: ["(x-5)(x+5)","(x-5)²","x(x-25)","(x+5)²"], correct: 0, cat: "math", dmg: 40 },
+  { q: "sin(90°) = ?", opts: ["1","0","-1","0.5"], correct: 0, cat: "math", dmg: 40 },
+  { q: "2⁸ = ?", opts: ["256","128","512","64"], correct: 0, cat: "math", dmg: 30 },
+  
+  // RUSSIAN
+  { q: "Как правильно?", opts: ["Участвовать","Учавствовать","Участвывать","Учавстовать"], correct: 0, cat: "russian", dmg: 25 },
+  { q: "НН или Н? Стекля__ый", opts: ["НН","Н"], correct: 0, cat: "russian", dmg: 30 },
+  { q: "ПРЕ или ПРИ? ...ехать", opts: ["ПРИ","ПРЕ"], correct: 0, cat: "russian", dmg: 25 },
+  { q: "Подлежащее в 'Идёт дождь'?", opts: ["Дождь","Идёт","Нет подлежащего","Идёт дождь"], correct: 0, cat: "russian", dmg: 30 },
+  { q: "НЕ с глаголами пишется...", opts: ["Раздельно","Слитно","По-разному","Через дефис"], correct: 0, cat: "russian", dmg: 25 },
+  
+  // SCIENCE
+  { q: "Формула воды?", opts: ["H₂O","CO₂","NaCl","O₂"], correct: 0, cat: "science", dmg: 25 },
+  { q: "F = m × a — чей закон?", opts: ["Ньютона","Архимеда","Ома","Паскаля"], correct: 0, cat: "science", dmg: 30 },
+  { q: "Сколько хромосом у человека?", opts: ["46","23","48","44"], correct: 0, cat: "science", dmg: 35 },
+  { q: "pH = 7 — это...", opts: ["Нейтральная среда","Кислая","Щелочная","Опасная"], correct: 0, cat: "science", dmg: 30 },
+  { q: "Единица силы тока?", opts: ["Ампер","Вольт","Ом","Ватт"], correct: 0, cat: "science", dmg: 25 },
+  { q: "Митохондрии — это...", opts: ["Энергостанции клетки","Часть мозга","Бактерии","Вирусы"], correct: 0, cat: "science", dmg: 30 },
+  { q: "Фотосинтез выделяет...", opts: ["Кислород","CO₂","Азот","Водород"], correct: 0, cat: "science", dmg: 25 },
+  
+  // HISTORY
+  { q: "Крещение Руси — год?", opts: ["988","1054","862","1147"], correct: 0, cat: "history", dmg: 30 },
+  { q: "Кто основал СПб?", opts: ["Пётр I","Екатерина II","Иван Грозный","Ленин"], correct: 0, cat: "history", dmg: 25 },
+  { q: "Начало ВОВ?", opts: ["22 июня 1941","1 сентября 1939","9 мая 1945","1 января 1942"], correct: 0, cat: "history", dmg: 30 },
+  { q: "Отмена крепостного права?", opts: ["1861","1812","1917","1905"], correct: 0, cat: "history", dmg: 30 },
+  
+  // ENGLISH
+  { q: "She ___ a doctor (to be)", opts: ["is","am","are","be"], correct: 0, cat: "lang", dmg: 25 },
+  { q: "Past Simple: go → ?", opts: ["went","goed","gone","going"], correct: 0, cat: "lang", dmg: 30 },
+  { q: "'Knowledge' = ?", opts: ["Знание","Нож","Колено","Стук"], correct: 0, cat: "lang", dmg: 25 },
+  { q: "I have ___ eaten (Present Perfect)", opts: ["already","yesterday","tomorrow","now"], correct: 0, cat: "lang", dmg: 30 },
+  
+  // LITERATURE
+  { q: "Автор 'Мёртвых душ'?", opts: ["Гоголь","Пушкин","Толстой","Чехов"], correct: 0, cat: "lit", dmg: 25 },
+  { q: "'Золотая осень' — это...", opts: ["Эпитет","Метафора","Олицетворение","Сравнение"], correct: 0, cat: "lit", dmg: 30 },
+  
+  // LOGIC/GENERAL
+  { q: "Продолжи: 2, 4, 8, 16, ?", opts: ["32","24","20","64"], correct: 0, cat: "logic", dmg: 25 },
+  { q: "Сколько минут в 2.5 часах?", opts: ["150","120","130","200"], correct: 0, cat: "logic", dmg: 20 },
+  { q: "1 км = ? метров", opts: ["1000","100","10000","500"], correct: 0, cat: "logic", dmg: 20 },
+];
+
 interface BossBattleModalProps {
     isOpen: boolean;
     onClose: () => void;
-    allies: string[]; // ['wizard', 'fairy', 'warrior']
+    allies: string[];
 }
 
-interface BattleLog {
-    id: number;
-    text: string;
-    type: 'player' | 'boss' | 'info' | 'heal';
-}
-
-interface FloatingText {
-    id: number;
-    text: string;
-    x: number;
-    y: number;
-    color: string;
+interface Question {
+    q: string;
+    opts: string[];
+    correct: number;
+    cat: string;
+    dmg: number;
 }
 
 const BossBattleModal: React.FC<BossBattleModalProps> = ({ isOpen, onClose, allies }) => {
     const dispatch = useDispatch<AppDispatch>();
     
     // Stats
-    const maxPlayerHp = 120;
-    const maxBossHp = 400; // Increased boss HP to balance new skills
+    const maxPlayerHp = 150;
+    const maxBossHp = 400;
     
     const [playerHp, setPlayerHp] = useState(maxPlayerHp);
     const [bossHp, setBossHp] = useState(maxBossHp);
     const [turn, setTurn] = useState<'player' | 'boss' | 'win' | 'lose'>('player');
-    const [logs, setLogs] = useState<BattleLog[]>([]);
+    const [logs, setLogs] = useState<string[]>([]);
     
-    // Visual Effects State
-    const [shake, setShake] = useState(0);
+    // Question State
+    const [currentQ, setCurrentQ] = useState<Question | null>(null);
+    const [disabledOpts, setDisabledOpts] = useState<number[]>([]);
+    const [dmgMultiplier, setDmgMultiplier] = useState(1);
+    
+    // Visuals
     const [bossFlash, setBossFlash] = useState(false);
     const [playerFlash, setPlayerFlash] = useState(false);
-    const [floatingTexts, setFloatingTexts] = useState<FloatingText[]>([]);
-    const [bossActionAnim, setBossActionAnim] = useState<string>('');
-
-    // Cooldowns
-    const [cooldowns, setCooldowns] = useState<{ [key: string]: number }>({
-        wizard: 0,
-        warrior: 0,
-        fairy: 0,
-        sport: 0
-    });
-
-    // Refs for safe timeouts
-    const turnTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     useEffect(() => {
         if (isOpen) {
             resetBattle();
-            addLog("Король Лени: 'Ты посмел нарушить мой покой?'", 'info');
+            nextQuestion();
         }
-        return () => {
-            if (turnTimeoutRef.current) clearTimeout(turnTimeoutRef.current);
-        };
     }, [isOpen]);
-
-    // Boss Turn Logic
-    useEffect(() => {
-        if (turn === 'boss') {
-            turnTimeoutRef.current = setTimeout(() => {
-                bossAttack();
-            }, 1500);
-        }
-    }, [turn]);
 
     const resetBattle = () => {
         setPlayerHp(maxPlayerHp);
         setBossHp(maxBossHp);
         setTurn('player');
-        setLogs([]);
-        setFloatingTexts([]);
-        setCooldowns({ wizard: 0, warrior: 0, fairy: 0, sport: 0 });
+        setLogs(["Король Лени: 'Докажи, что твои знания чего-то стоят!'"]);
+        setDisabledOpts([]);
+        setDmgMultiplier(1);
         setBossFlash(false);
         setPlayerFlash(false);
-        setBossActionAnim('');
     };
 
-    const addLog = (text: string, type: BattleLog['type']) => {
-        setLogs(prev => [{ id: Date.now(), text, type }, ...prev].slice(0, 5));
+    const nextQuestion = () => {
+        const idx = Math.floor(Math.random() * BOSS_QUESTIONS.length);
+        setCurrentQ(BOSS_QUESTIONS[idx]);
+        setDisabledOpts([]);
     };
 
-    const spawnFloatingText = (text: string, target: 'player' | 'boss', type: 'damage' | 'heal' | 'miss') => {
-        const id = Date.now() + Math.random();
-        // Randomize position slightly
-        const offsetX = Math.random() * 40 - 20; 
-        const offsetY = Math.random() * 20 - 10;
-        
-        let x = target === 'boss' ? 50 + offsetX : 20 + offsetX; // % positions
-        let y = target === 'boss' ? 30 + offsetY : 60 + offsetY;
-        
-        let color = 'text-white';
-        if (type === 'damage') color = target === 'player' ? 'text-red-500' : 'text-yellow-400';
-        if (type === 'heal') color = 'text-emerald-400';
-        
-        setFloatingTexts(prev => [...prev, { id, text, x, y, color }]);
+    const handleAnswer = (idx: number) => {
+        if (turn !== 'player' || !currentQ) return;
 
-        // Remove after animation
-        setTimeout(() => {
-            setFloatingTexts(prev => prev.filter(ft => ft.id !== id));
-        }, 1000);
-    };
-
-    const triggerShake = () => {
-        setShake(prev => prev + 1);
-        setTimeout(() => setShake(0), 500);
-    };
-
-    const handleDamage = (target: 'player' | 'boss', amount: number) => {
-        if (target === 'boss') {
-            setBossHp(prev => Math.max(0, prev - amount));
+        if (idx === currentQ.correct) {
+            // Correct
+            const dmg = Math.floor(currentQ.dmg * dmgMultiplier);
+            setBossHp(prev => Math.max(0, prev - dmg));
             setBossFlash(true);
             setTimeout(() => setBossFlash(false), 200);
-            spawnFloatingText(`-${amount}`, 'boss', 'damage');
-            triggerShake();
-        } else {
-            setPlayerHp(prev => Math.max(0, prev - amount));
-            setPlayerFlash(true);
-            setTimeout(() => setPlayerFlash(false), 200);
-            spawnFloatingText(`-${amount}`, 'player', 'damage');
-            triggerShake();
-        }
-    };
-
-    const handleHeal = (amount: number) => {
-        setPlayerHp(prev => Math.min(maxPlayerHp, prev + amount));
-        spawnFloatingText(`+${amount}`, 'player', 'heal');
-    };
-
-    const checkWinCondition = (currentBossHp: number) => {
-        if (currentBossHp <= 0) {
-            setBossHp(0);
-            setTurn('win');
-            confetti({ particleCount: 200, spread: 100, origin: { y: 0.6 } });
-            return true;
-        }
-        return false;
-    };
-
-    const playerAction = (action: string) => {
-        if (turn !== 'player') return;
-
-        let damage = 0;
-        let heal = 0;
-        let logMsg = "";
-        let logType: BattleLog['type'] = 'player';
-        let newCooldowns = { ...cooldowns };
-
-        // Reduce cooldowns
-        Object.keys(newCooldowns).forEach(k => {
-            if (newCooldowns[k] > 0) newCooldowns[k]--;
-        });
-
-        // --- SKILLS ---
-        switch (action) {
-            case 'math_strike': // High Variance Dmg
-                const isCrit = Math.random() > 0.6;
-                damage = isCrit ? 45 : 15;
-                logMsg = isCrit 
-                    ? `КРИТ! Точный расчет уязвимости! (-${damage})` 
-                    : `Вычисление удара... Попадание. (-${damage})`;
-                break;
+            setLogs(prev => [`Вы нанесли ${dmg} урона знаниями!`, ...prev].slice(0, 4));
+            setDmgMultiplier(1); // Reset multiplier
             
-            case 'sport_bash': // Dmg + Heal
-                if (newCooldowns.sport > 0) return;
-                damage = 15;
-                heal = 10;
-                newCooldowns.sport = 2;
-                logMsg = `Удар выносливости! (-${damage}, +${heal} HP)`;
-                break;
-
-            case 'lang_word': // Consistent Dmg
-                damage = 25;
-                logMsg = "Сила Слова бьет без промаха! (-25)";
-                break;
-
-            // --- ALLIES (MAGIC) ---
-            case 'warrior':
-                if (newCooldowns.warrior > 0) return;
-                damage = 60;
-                logMsg = "⚔️ Воин Дисциплины ломает защиту босса! (-60)";
-                newCooldowns.warrior = 4;
-                break;
-            case 'wizard':
-                if (newCooldowns.wizard > 0) return;
-                damage = 50;
-                logMsg = "🔥 Волшебник сжигает лень Огнем Дедлайна! (-50)";
-                newCooldowns.wizard = 3; // Reduced cooldown for more fun
-                break;
-            case 'fairy':
-                if (newCooldowns.fairy > 0) return;
-                heal = 60;
-                logMsg = "🧚‍♀️ Дух Мотивации дарует второе дыхание! (+60 HP)";
-                logType = 'heal';
-                newCooldowns.fairy = 4;
-                break;
-        }
-
-        setCooldowns(newCooldowns);
-
-        // Apply Effects
-        if (damage > 0) {
-            handleDamage('boss', damage);
-            // Check win IMMEDIATELY before setting turn to boss
-            if (bossHp - damage <= 0) {
-                checkWinCondition(bossHp - damage);
-                return;
+            if (bossHp - dmg <= 0) {
+                setTurn('win');
+                confetti({ particleCount: 200, spread: 100, origin: { y: 0.6 } });
+            } else {
+                setTurn('boss');
+                setTimeout(bossTurn, 1500);
             }
+        } else {
+            // Incorrect
+            setLogs(prev => [`Ошибка! Правильно: ${currentQ.opts[currentQ.correct]}`, ...prev].slice(0, 4));
+            setTurn('boss');
+            setTimeout(bossTurn, 1500);
         }
-
-        if (heal > 0) {
-            handleHeal(heal);
-        }
-
-        addLog(logMsg, logType);
-        setTurn('boss');
     };
 
-    const bossAttack = () => {
-        if (bossHp <= 0) return; // Safety check
-
-        const moves = [
-            { name: "Скука", dmg: 10, msg: "Босс зевает. Вы теряете бдительность." },
-            { name: "Прокрастинация", dmg: 15, msg: "Босс откладывает вашу защиту на потом." },
-            { name: "Сомнение", dmg: 25, msg: "Босс шепчет: 'У тебя ничего не выйдет'." },
-            { name: "Тяжесть Бытия", dmg: 35, msg: "Тяжелая атака ленью!" },
-        ];
-
-        // Boss gets stronger as HP gets lower
-        let moveIndex = Math.floor(Math.random() * 3); // Light attacks
-        if (bossHp < maxBossHp * 0.5) {
-             moveIndex = Math.floor(Math.random() * moves.length); // All attacks including heavy
-        }
-
-        const move = moves[moveIndex];
+    const bossTurn = () => {
+        const dmg = Math.floor(Math.random() * 20) + 15;
+        setPlayerHp(prev => Math.max(0, prev - dmg));
+        setPlayerFlash(true);
+        setTimeout(() => setPlayerFlash(false), 200);
+        setLogs(prev => [`Король Лени атакует! -${dmg} HP`, ...prev].slice(0, 4));
         
-        // Critical hit chance for boss
-        let finalDmg = move.dmg;
-        let isCrit = false;
-        if (Math.random() > 0.8) {
-            finalDmg = Math.floor(finalDmg * 1.5);
-            isCrit = true;
-        }
-
-        setBossActionAnim('attack');
-        setTimeout(() => setBossActionAnim(''), 500);
-
-        handleDamage('player', finalDmg);
-        addLog(`${move.msg} ${isCrit ? '(КРИТ!)' : ''}`, 'boss');
-
-        if (playerHp - finalDmg <= 0) {
+        if (playerHp - dmg <= 0) {
             setTurn('lose');
         } else {
             setTurn('player');
+            nextQuestion();
+        }
+    };
+
+    // Ally Abilities
+    const useAlly = (ally: string) => {
+        if (!currentQ || turn !== 'player') return;
+
+        if (ally === 'wizard') {
+            // Remove 1 wrong option
+            const wrongOpts = currentQ.opts.map((_, i) => i).filter(i => i !== currentQ.correct && !disabledOpts.includes(i));
+            if (wrongOpts.length > 0) {
+                const toRemove = wrongOpts[Math.floor(Math.random() * wrongOpts.length)];
+                setDisabledOpts(prev => [...prev, toRemove]);
+                setLogs(prev => [`🧙‍♂️ Волшебник убрал неверный вариант!`, ...prev].slice(0, 4));
+            }
+        }
+        if (ally === 'fairy') {
+            setPlayerHp(prev => Math.min(maxPlayerHp, prev + 30));
+            setLogs(prev => [`🧚‍♀️ Фея восстановила 30 HP!`, ...prev].slice(0, 4));
+        }
+        if (ally === 'warrior') {
+            setDmgMultiplier(2);
+            setLogs(prev => [`🛡️ Воин: Следующий удар нанесет двойной урон!`, ...prev].slice(0, 4));
         }
     };
 
     const handleVictory = () => {
         dispatch(finishCampaign());
         onClose();
-    };
-
-    // Smooth HP Bar Component
-    const HpBar = ({ current, max, color, label }: { current: number, max: number, color: string, label: string }) => {
-        const percent = Math.max(0, Math.min(100, (current / max) * 100));
-        return (
-            <div className="w-full">
-                <div className="flex justify-between text-xs font-bold text-slate-300 mb-1 px-1">
-                    <span>{label}</span>
-                    <span>{current}/{max}</span>
-                </div>
-                <div className="h-4 bg-slate-950 rounded-full border border-slate-700 overflow-hidden relative shadow-inner">
-                    <motion.div 
-                        initial={{ width: '100%' }}
-                        animate={{ width: `${percent}%` }}
-                        transition={{ type: "spring", stiffness: 50, damping: 15 }}
-                        className={`h-full ${color} relative`}
-                    >
-                        {/* Shine effect */}
-                        <div className="absolute top-0 right-0 bottom-0 w-1 bg-white/30 blur-[2px]"></div>
-                    </motion.div>
-                </div>
-            </div>
-        );
     };
 
     return (
@@ -307,194 +197,106 @@ const BossBattleModal: React.FC<BossBattleModalProps> = ({ isOpen, onClose, alli
                 content: { position: 'relative', inset: 'auto', border: 'none', background: 'transparent', padding: 0, width: '100%', maxWidth: '700px' }
             }}
         >
-            <motion.div 
-                animate={{ x: shake % 2 === 0 ? -5 : 5 }}
-                transition={{ duration: 0.1 }}
-                className="relative w-full bg-slate-900 border-2 border-slate-700 rounded-3xl overflow-hidden shadow-[0_0_50px_rgba(0,0,0,0.8)]"
-            >
-                {/* Floating Text Container (Absolute overlay) */}
-                <div className="absolute inset-0 pointer-events-none z-50 overflow-hidden">
-                    <AnimatePresence>
-                        {floatingTexts.map(ft => (
-                            <motion.div
-                                key={ft.id}
-                                initial={{ opacity: 1, y: `${ft.y}%`, x: `${ft.x}%`, scale: 0.5 }}
-                                animate={{ opacity: 0, y: `${ft.y - 15}%`, scale: 1.5 }}
-                                exit={{ opacity: 0 }}
-                                transition={{ duration: 0.8 }}
-                                className={`absolute font-black text-4xl ${ft.color} text-shadow-lg`}
-                                style={{ left: 0, top: 0 }} // Positioning handled by initial/animate
-                            >
-                                {ft.text}
-                            </motion.div>
-                        ))}
-                    </AnimatePresence>
+            <div className="relative w-full bg-slate-900 border-2 border-slate-700 rounded-3xl overflow-hidden shadow-[0_0_50px_rgba(0,0,0,0.8)]">
+                {/* Visuals */}
+                <div className={`relative h-64 bg-slate-900 flex justify-between items-end p-8 transition-colors ${playerFlash ? 'bg-red-900/50' : ''}`}>
+                     <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-800 via-slate-950 to-black opacity-80"></div>
+                     
+                     {/* Player */}
+                     <div className="relative z-10">
+                        <div className="w-32">
+                            <div className="flex justify-between text-xs font-bold text-emerald-400 mb-1">
+                                <span>Герой</span>
+                                <span>{playerHp}/{maxPlayerHp}</span>
+                            </div>
+                            <div className="h-4 bg-slate-800 rounded-full overflow-hidden border border-slate-600">
+                                <div className="h-full bg-emerald-500 transition-all duration-300" style={{ width: `${(playerHp/maxPlayerHp)*100}%` }}></div>
+                            </div>
+                        </div>
+                     </div>
+
+                     {/* Boss */}
+                     <div className="relative z-10 flex flex-col items-center">
+                         <div className={`w-32 h-32 rounded-full border-4 flex items-center justify-center shadow-[0_0_40px_rgba(220,38,38,0.4)] transition-all ${bossFlash ? 'bg-red-500 scale-110' : 'bg-slate-800 border-red-900'}`}>
+                             <Skull size={64} className="text-red-500" />
+                         </div>
+                         <div className="w-48 mt-4">
+                            <div className="flex justify-between text-xs font-bold text-red-400 mb-1">
+                                <span>Король Лени</span>
+                                <span>{bossHp}/{maxBossHp}</span>
+                            </div>
+                            <div className="h-4 bg-slate-800 rounded-full overflow-hidden border border-slate-600">
+                                <div className="h-full bg-red-600 transition-all duration-300" style={{ width: `${(bossHp/maxBossHp)*100}%` }}></div>
+                            </div>
+                        </div>
+                     </div>
                 </div>
 
-                {/* --- BATTLE SCENE --- */}
-                <div className={`relative h-72 transition-colors duration-200 ${playerFlash ? 'bg-red-900/50' : 'bg-slate-900'}`}>
-                    {/* Background Image/Gradient */}
-                    <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-800 via-slate-950 to-black opacity-80"></div>
-                    
-                    {/* BOSS */}
-                    <div className="absolute top-6 left-1/2 -translate-x-1/2 flex flex-col items-center w-64 z-10">
-                        <HpBar current={bossHp} max={maxBossHp} color="bg-gradient-to-r from-red-600 to-red-500" label="Король Лени" />
-                        <motion.div 
-                            animate={
-                                bossActionAnim === 'attack' ? { scale: 1.2, y: 30 } : 
-                                bossFlash ? { x: [-5, 5, -5, 5, 0], filter: "brightness(2)" } : 
-                                { y: [0, -5, 0] }
-                            }
-                            transition={{ y: { repeat: Infinity, duration: 2, ease: "easeInOut" } }}
-                            className="mt-6 relative"
-                        >
-                             <div className={`w-32 h-32 md:w-40 md:h-40 rounded-full border-4 flex items-center justify-center shadow-[0_0_40px_rgba(220,38,38,0.4)] relative z-10 transition-colors duration-200 ${bossFlash ? 'bg-red-500 border-white' : 'bg-slate-800 border-red-900'}`}>
-                                 <Skull size={64} className={`${bossFlash ? 'text-white' : 'text-red-500'}`} />
+                {/* Controls */}
+                <div className="bg-slate-950 p-6 border-t border-slate-800 min-h-[300px]">
+                     {/* Logs */}
+                     <div className="h-16 overflow-y-auto mb-4 bg-black/30 rounded p-2 text-xs font-mono text-slate-400">
+                         {logs.map((l, i) => <div key={i}>{'>'} {l}</div>)}
+                     </div>
+
+                     {turn === 'player' && currentQ ? (
+                         <div>
+                             <h3 className="text-white font-bold text-lg mb-4 text-center">{currentQ.q}</h3>
+                             <div className="grid grid-cols-2 gap-3 mb-6">
+                                 {currentQ.opts.map((opt, idx) => (
+                                     <button
+                                        key={idx}
+                                        onClick={() => handleAnswer(idx)}
+                                        disabled={disabledOpts.includes(idx)}
+                                        className={`p-3 rounded-xl border-2 font-bold transition-all ${disabledOpts.includes(idx) ? 'bg-slate-900 border-slate-800 text-slate-700 opacity-50' : 'bg-slate-800 border-slate-700 hover:border-purple-500 text-white'}`}
+                                     >
+                                         {opt}
+                                     </button>
+                                 ))}
                              </div>
-                             {/* Aura */}
-                             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-56 h-56 bg-red-600/10 blur-2xl rounded-full -z-10 animate-pulse"></div>
-                        </motion.div>
-                    </div>
 
-                    {/* PLAYER STATS */}
-                    <div className="absolute bottom-0 w-full p-4 bg-gradient-to-t from-slate-900 to-transparent z-20">
-                        <div className="flex items-end justify-between max-w-lg mx-auto">
-                            <div className="w-full">
-                                <HpBar current={playerHp} max={maxPlayerHp} color="bg-gradient-to-r from-emerald-500 to-emerald-400" label="Вы (Герой)" />
-                            </div>
-                        </div>
-                    </div>
+                             {/* Allies */}
+                             <div className="flex justify-center gap-4 border-t border-slate-800 pt-4">
+                                 {allies.includes('wizard') && (
+                                     <button onClick={() => useAlly('wizard')} className="flex flex-col items-center text-purple-400 hover:text-white">
+                                         <div className="p-2 bg-purple-900/30 rounded-lg border border-purple-500/50 mb-1"><Zap size={20}/></div>
+                                         <span className="text-[10px] font-bold">50/50</span>
+                                     </button>
+                                 )}
+                                 {allies.includes('fairy') && (
+                                     <button onClick={() => useAlly('fairy')} className="flex flex-col items-center text-pink-400 hover:text-white">
+                                         <div className="p-2 bg-pink-900/30 rounded-lg border border-pink-500/50 mb-1"><Heart size={20}/></div>
+                                         <span className="text-[10px] font-bold">Heal</span>
+                                     </button>
+                                 )}
+                                 {allies.includes('warrior') && (
+                                     <button onClick={() => useAlly('warrior')} className="flex flex-col items-center text-red-400 hover:text-white">
+                                         <div className="p-2 bg-red-900/30 rounded-lg border border-red-500/50 mb-1"><Sword size={20}/></div>
+                                         <span className="text-[10px] font-bold">x2 Dmg</span>
+                                     </button>
+                                 )}
+                             </div>
+                         </div>
+                     ) : turn === 'boss' ? (
+                         <div className="text-center text-red-400 py-10 animate-pulse font-bold text-xl">
+                             <AlertCircle className="mx-auto mb-2" />
+                             Босс атакует...
+                         </div>
+                     ) : turn === 'win' ? (
+                         <div className="text-center py-6">
+                             <Crown size={48} className="text-amber-400 mx-auto mb-4" />
+                             <h2 className="text-3xl font-black text-white mb-4">ПОБЕДА!</h2>
+                             <button onClick={handleVictory} className="bg-amber-600 text-white px-8 py-3 rounded-xl font-bold">Завершить</button>
+                         </div>
+                     ) : (
+                         <div className="text-center py-6">
+                             <Skull size={48} className="text-slate-500 mx-auto mb-4" />
+                             <h2 className="text-3xl font-black text-white mb-4">ПОРАЖЕНИЕ</h2>
+                             <button onClick={resetBattle} className="bg-slate-700 text-white px-8 py-3 rounded-xl font-bold">Попробовать снова</button>
+                         </div>
+                     )}
                 </div>
-
-                {/* --- CONTROL PANEL --- */}
-                <div className="bg-slate-950 border-t border-slate-800 p-4 min-h-[250px] flex flex-col">
-                    
-                    {/* Battle Log */}
-                    <div className="h-20 overflow-y-auto mb-4 bg-black/30 rounded-lg p-2 border border-slate-800 text-xs md:text-sm font-mono flex flex-col-reverse shadow-inner">
-                        {logs.map(log => (
-                            <motion.div 
-                                key={log.id} 
-                                initial={{ opacity: 0, x: -10 }} 
-                                animate={{ opacity: 1, x: 0 }}
-                                className={`mb-1 truncate ${
-                                    log.type === 'player' ? 'text-emerald-300' : 
-                                    log.type === 'boss' ? 'text-red-300' : 
-                                    log.type === 'heal' ? 'text-green-400 font-bold' :
-                                    'text-slate-400'
-                                }`}
-                            >
-                                {log.type === 'boss' ? '💀' : log.type === 'heal' ? '💚' : '>'} {log.text}
-                            </motion.div>
-                        ))}
-                    </div>
-
-                    {/* ACTIONS GRID */}
-                    {turn === 'player' && (
-                        <div className="flex-1 grid grid-cols-4 gap-2 md:gap-3">
-                            {/* Standard Skills */}
-                            <button onClick={() => playerAction('math_strike')} className="col-span-1 bg-slate-800 hover:bg-indigo-900/50 border border-slate-700 hover:border-indigo-500 text-indigo-300 rounded-xl flex flex-col items-center justify-center p-2 transition-all active:scale-95 group">
-                                <Calculator size={20} className="mb-1 group-hover:scale-110 transition-transform" />
-                                <span className="text-[10px] font-bold uppercase">Расчет</span>
-                            </button>
-                            
-                            <button onClick={() => playerAction('lang_word')} className="col-span-1 bg-slate-800 hover:bg-blue-900/50 border border-slate-700 hover:border-blue-500 text-blue-300 rounded-xl flex flex-col items-center justify-center p-2 transition-all active:scale-95 group">
-                                <BookOpen size={20} className="mb-1 group-hover:scale-110 transition-transform" />
-                                <span className="text-[10px] font-bold uppercase">Слово</span>
-                            </button>
-
-                            <button onClick={() => playerAction('sport_bash')} disabled={cooldowns.sport > 0} className={`col-span-1 border rounded-xl flex flex-col items-center justify-center p-2 transition-all active:scale-95 group ${cooldowns.sport > 0 ? 'bg-slate-900 border-slate-800 text-slate-600 opacity-50' : 'bg-slate-800 hover:bg-emerald-900/50 border-slate-700 hover:border-emerald-500 text-emerald-300'}`}>
-                                <Dumbbell size={20} className="mb-1 group-hover:scale-110 transition-transform" />
-                                <span className="text-[10px] font-bold uppercase">{cooldowns.sport > 0 ? `${cooldowns.sport}х` : 'Спорт'}</span>
-                            </button>
-
-                            {/* Filler or Item (Disabled for now) */}
-                            <div className="col-span-1 bg-slate-900/50 border border-slate-800 rounded-xl flex items-center justify-center text-slate-700">
-                                <span className="text-xs">...</span>
-                            </div>
-
-                            {/* ALLY MAGIC ROW */}
-                            <div className="col-span-4 mt-2 grid grid-cols-3 gap-2 border-t border-slate-800 pt-3">
-                                <button 
-                                    onClick={() => playerAction('wizard')} 
-                                    disabled={!allies.includes('wizard') || cooldowns.wizard > 0}
-                                    className={`relative py-3 rounded-xl font-bold flex flex-col items-center justify-center gap-1 border transition-all ${
-                                        allies.includes('wizard') && cooldowns.wizard === 0
-                                        ? 'bg-purple-900/40 hover:bg-purple-800/60 text-purple-300 border-purple-500/50 shadow-[0_0_10px_rgba(168,85,247,0.2)]' 
-                                        : 'bg-slate-900 text-slate-600 border-slate-800 opacity-60 cursor-not-allowed'
-                                    }`}
-                                >
-                                    <Zap size={18} className={allies.includes('wizard') && cooldowns.wizard === 0 ? 'animate-pulse' : ''} />
-                                    <span className="text-[10px] uppercase">Магия</span>
-                                    {cooldowns.wizard > 0 && <div className="absolute inset-0 bg-slate-950/80 flex items-center justify-center font-black text-xl text-white rounded-xl">{cooldowns.wizard}</div>}
-                                </button>
-
-                                <button 
-                                    onClick={() => playerAction('warrior')} 
-                                    disabled={!allies.includes('warrior') || cooldowns.warrior > 0}
-                                    className={`relative py-3 rounded-xl font-bold flex flex-col items-center justify-center gap-1 border transition-all ${
-                                        allies.includes('warrior') && cooldowns.warrior === 0
-                                        ? 'bg-red-900/40 hover:bg-red-800/60 text-red-300 border-red-500/50 shadow-[0_0_10px_rgba(239,68,68,0.2)]' 
-                                        : 'bg-slate-900 text-slate-600 border-slate-800 opacity-60 cursor-not-allowed'
-                                    }`}
-                                >
-                                    <Sword size={18} />
-                                    <span className="text-[10px] uppercase">Удар</span>
-                                    {cooldowns.warrior > 0 && <div className="absolute inset-0 bg-slate-950/80 flex items-center justify-center font-black text-xl text-white rounded-xl">{cooldowns.warrior}</div>}
-                                </button>
-
-                                <button 
-                                    onClick={() => playerAction('fairy')} 
-                                    disabled={!allies.includes('fairy') || cooldowns.fairy > 0}
-                                    className={`relative py-3 rounded-xl font-bold flex flex-col items-center justify-center gap-1 border transition-all ${
-                                        allies.includes('fairy') && cooldowns.fairy === 0
-                                        ? 'bg-pink-900/40 hover:bg-pink-800/60 text-pink-300 border-pink-500/50 shadow-[0_0_10px_rgba(236,72,153,0.2)]' 
-                                        : 'bg-slate-900 text-slate-600 border-slate-800 opacity-60 cursor-not-allowed'
-                                    }`}
-                                >
-                                    <Heart size={18} />
-                                    <span className="text-[10px] uppercase">Хил</span>
-                                    {cooldowns.fairy > 0 && <div className="absolute inset-0 bg-slate-950/80 flex items-center justify-center font-black text-xl text-white rounded-xl">{cooldowns.fairy}</div>}
-                                </button>
-                            </div>
-                        </div>
-                    )}
-
-                    {turn === 'boss' && (
-                        <div className="flex-1 flex items-center justify-center flex-col text-red-400">
-                            <AlertCircle size={32} className="mb-2 animate-bounce" />
-                            <span className="font-bold text-lg animate-pulse">Босс готовит атаку...</span>
-                        </div>
-                    )}
-
-                    {/* --- END GAME SCREENS --- */}
-                    {turn === 'win' && (
-                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="absolute inset-0 bg-slate-950/95 flex flex-col items-center justify-center z-50">
-                            <motion.div 
-                                initial={{ scale: 0 }} animate={{ scale: 1 }} 
-                                className="bg-amber-500/20 p-6 rounded-full border-2 border-amber-500 shadow-[0_0_50px_rgba(245,158,11,0.5)] mb-6"
-                            >
-                                <Crown size={64} className="text-amber-400" />
-                            </motion.div>
-                            <h2 className="text-4xl font-black text-white mb-4 rpg-font">ПОБЕДА!</h2>
-                            <p className="text-slate-400 mb-8 px-8 text-center max-w-md">Тень рассеялась. Твои знания стали твоим мечом. Мир спасен!</p>
-                            <button onClick={handleVictory} className="bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white px-10 py-4 rounded-xl font-bold text-xl shadow-lg transform hover:scale-105 transition-all">
-                                Завершить Путь Героя
-                            </button>
-                        </motion.div>
-                    )}
-
-                    {turn === 'lose' && (
-                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="absolute inset-0 bg-black/95 flex flex-col items-center justify-center z-50">
-                            <Skull size={64} className="text-slate-600 mb-4" />
-                            <h2 className="text-3xl font-black text-white mb-2 rpg-font">ПОРАЖЕНИЕ</h2>
-                            <p className="text-slate-500 mb-8 px-8 text-center">Не сдавайся. Передохни и попробуй снова.</p>
-                            <button onClick={resetBattle} className="bg-slate-800 hover:bg-slate-700 text-white px-8 py-3 rounded-xl font-bold text-lg border border-slate-600">
-                                Реванш
-                            </button>
-                        </motion.div>
-                    )}
-                </div>
-            </motion.div>
+            </div>
         </Modal>
     );
 };

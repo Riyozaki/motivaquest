@@ -1,3 +1,4 @@
+
 import { createSlice, PayloadAction, createAsyncThunk } from '@reduxjs/toolkit';
 import { UserProfile, Achievement, SurveySubmission, ThemeColor, Quest, QuestHistoryItem } from '../types';
 import { toast } from 'react-toastify';
@@ -99,7 +100,7 @@ const mapSheetToUser = (rawData: any): UserProfile => {
         streakDays: Number(info.dailyStreak) || 0,
         streakTakenToday: Boolean(info.streakTakenToday), // Backend flag
         themeColor: info.interfaceColor || 'purple',
-        lastDailyMood: info.mood !== 'neutral' ? new Date().toDateString() : undefined,
+        lastDailyMood: info.moodDate || info.mood !== 'neutral' ? (info.moodDate || new Date().toISOString()) : undefined, // Use info.moodDate if available
         inventory: inventory,
         achievements: achievements,
         questHistory: mappedHistory,
@@ -178,10 +179,6 @@ export const initAuth = createAsyncThunk('user/initAuth', async () => {
 
         const normalizedUser = mapSheetToUser(response);
         
-        // Check if we need to reset the backend flag for a NEW day
-        // Since GAS is passive, we do it here.
-        // If local date != today, we assume it's a new day logic-wise.
-        
         // Execute Smart Reward Logic
         const { user: updatedUser, reward } = processDailyLogin(normalizedUser);
         
@@ -207,8 +204,6 @@ export const initAuth = createAsyncThunk('user/initAuth', async () => {
 
 export const loginDemo = createAsyncThunk('user/loginDemo', async () => {
     const demoEmail = 'demo@motivaquest.local';
-    // ... logic remains similar ...
-    // Simplified for brevity, demo always gets login logic processed
     const user = { ...DEFAULT_USER_DATA, email: demoEmail, username: "Demo Hero", uid: 'demo_hero_id', role: 'admin' } as UserProfile;
     return { user, reward: null };
 });
@@ -244,8 +239,6 @@ export const registerLocal = createAsyncThunk(
     } as UserProfile;
 
     localStorage.setItem(STORAGE_KEY_EMAIL, newUserState.email);
-    // New users don't get daily reward immediately or do they? Let's say yes for onboarding hook.
-    // But simplified: new user = no previous streak.
     
     analytics.track('register', newUserState, { email: payload.email });
     return { user: newUserState, reward: null };
@@ -254,7 +247,6 @@ export const registerLocal = createAsyncThunk(
 
 export const logoutLocal = createAsyncThunk('user/logout', async () => {
     localStorage.removeItem(STORAGE_KEY_EMAIL);
-    // Do NOT clear STORAGE_KEY_LAST_REWARD to prevent re-login exploit on same day
     return null;
 });
 
@@ -304,7 +296,6 @@ export const submitDailyMood = createAsyncThunk(
         await api.setMood(user.email, moodScore);
         
         // 2. Keep history in 'dailyReport' column as JSON (for stats/admin)
-        // We use setDailyReport from api which maps to that column
         await api.setDailyReport(user.email, {
             date: payload.date,
             score: moodScore
@@ -313,7 +304,7 @@ export const submitDailyMood = createAsyncThunk(
         await dispatch(addExperience({ xp: 30, coins: 15 }));
         toast.success("Настроение учтено! +30 XP");
 
-        return payload; 
+        return { ...payload, date: new Date().toISOString() }; // Ensure ISO string returned
     }
 );
 
@@ -637,7 +628,7 @@ const userSlice = createSlice({
       })
       .addCase(submitDailyMood.fulfilled, (state, action) => {
           if (state.currentUser && action.payload) {
-              state.currentUser.lastDailyMood = new Date().toDateString();
+              state.currentUser.lastDailyMood = action.payload.date;
               // Simplified history tracking in local state for UI update
               if(!state.currentUser.surveyHistory) state.currentUser.surveyHistory = [];
               state.currentUser.surveyHistory.push({

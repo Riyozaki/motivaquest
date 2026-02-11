@@ -1,31 +1,58 @@
 
+export type TaskType = 
+  | 'yes_no'           
+  | 'quiz'             
+  | 'text_input'       
+  | 'number_input'     
+  | 'timer_challenge'  
+  | 'checklist'        
+  | 'ordering'         
+  | 'matching';        
+
 export interface Task {
   id: number;
+  type: TaskType;
   question: string;
-  correctAnswer: string;
-  userAnswer?: string;
-  isCorrect?: boolean;
+  
+  // Quiz
+  options?: string[];
+  correctIndex?: number;
+  
+  // Input
+  correctAnswer?: string;
+  acceptableAnswers?: string[];
+  caseSensitive?: boolean;
+  
+  // Timer
+  timerSeconds?: number;
+  
+  // Checklist
+  checklistItems?: { id: string; label: string }[];
+  
+  // Ordering
+  correctOrder?: string[];
+  shuffledItems?: string[]; // For initial display
+  
+  // Matching
+  pairs?: { left: string; right: string }[];
+  
+  // General
+  hint?: string;
+  explanation?: string;
+  xpBonus?: number;
+  
+  // State for user answers (optional, usually handled in component state)
+  userAnswer?: any; 
 }
 
 export type QuestRarity = 'Common' | 'Rare' | 'Epic' | 'Legendary';
 
 export type ThemeColor = 'purple' | 'blue' | 'green' | 'crimson' | 'amber';
 
-// Расширенный список категорий для школьной программы
 export type QuestCategory = 
-  | 'Math'        // Математика, Алгебра, Геометрия
-  | 'Russian'     // Русский язык
-  | 'Literature'  // Литература
-  | 'Lang'        // Иностранные языки
-  | 'Science'     // Физика, Химия, Биология, Окр. мир
-  | 'History'     // История, Обществознание
-  | 'Sport'       // Физкультура, Здоровье
-  | 'Social'      // Социум, Общение, Семья
-  | 'Ecology'     // Экология
-  | 'Self'        // Личное развитие, Тайм-менеджмент
-  | 'Finance'     // Финансовая грамотность
-  | 'IT'          // Информатика
-  | 'Art';        // Творчество
+  | 'Math' | 'Russian' | 'Literature' | 'Lang' | 'Science' 
+  | 'History' | 'Sport' | 'Social' | 'Ecology' | 'Self' 
+  | 'Finance' | 'IT' | 'Art';
 
 export interface Quest {
   id: number;
@@ -39,9 +66,8 @@ export interface Quest {
   completed: boolean;
   tasks: Task[];
   type: 'daily' | 'story'; 
-  grade?: number; 
-  cooldownSeconds?: number;
-  minMinutes: number; // New: Minimum time required
+  gradeRange?: [number, number]; // New: [min, max]
+  minMinutes: number; 
 }
 
 export interface ShopItem {
@@ -67,9 +93,9 @@ export interface Achievement {
 
 export interface QuestHistoryItem {
   questId: number;
-  questTitle: string; // Added for easy history display
+  questTitle: string; 
   xpEarned: number;
-  date: string; // ISO String
+  date: string; 
 }
 
 export interface SurveySubmission {
@@ -112,12 +138,12 @@ export interface UserProfile {
   lastDailyMood?: string; 
   themeColor?: ThemeColor;
   
-  // Anti-Cheat & Mechanics
-  activeQuestTimers: Record<number, number>; // questId -> timestamp (start time)
+  // Mechanics
+  activeQuestTimers: Record<number, number>;
   dailyCompletionsCount: number;
   lastCompletionTime?: number;
   suspiciousFlags: number;
-  penaltyUntil?: number; // timestamp until penalties apply
+  penaltyUntil?: number;
   streakDays: number;
   lastLoginDate?: string;
   streakTakenToday: boolean;
@@ -125,7 +151,7 @@ export interface UserProfile {
   // Story Mode
   campaign: {
     currentDay: number;
-    isDayComplete: boolean; // Ready to advance
+    isDayComplete: boolean;
     unlockedAllies: string[];
   };
 }
