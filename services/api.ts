@@ -45,6 +45,7 @@ export interface CompleteQuestPayload {
         score?: number;
         category?: string;
         xpEarned: number;
+        coinsEarned?: number;
     };
     newLevel: number;
     newXp: number;

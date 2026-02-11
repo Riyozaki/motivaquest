@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { MapPin, Lock, Check, CheckCircle, Skull, Swords } from 'lucide-react';
+import { MapPin, Lock, Check, CheckCircle, Skull, Swords, Clock, AlertTriangle } from 'lucide-react';
 import { Quest } from '../../types';
 import LocationEffects from '../LocationEffects';
 
@@ -37,9 +37,40 @@ const itemVar = {
 
 const CampaignView: React.FC<CampaignViewProps> = ({ 
     currentDayNum, currentStory, storyQuests, completedCount, totalCount, 
-    onQuestSelect, onBossOpen, onAdvanceDay, isDayComplete 
+    onQuestSelect, onBossOpen, onAdvanceDay, isDayComplete, user
 }) => {
     
+    // --- GAMING DAY LOGIC ---
+    // A gaming day starts at 06:00 AM MSK.
+    // If you advanced at 14:00 today, you can't advance again until 06:00 tomorrow.
+    // If you advanced at 05:00 today, you CAN advance after 06:00 today.
+    
+    const getGamingDayId = (dateObj: Date) => {
+        // Convert to MSK
+        const mskDate = new Date(dateObj.toLocaleString("en-US", { timeZone: "Europe/Moscow" }));
+        const mskHours = mskDate.getHours();
+        
+        // If before 6 AM, it belongs to the previous calendar day
+        if (mskHours < 6) {
+            mskDate.setDate(mskDate.getDate() - 1);
+        }
+        
+        // Return string YYYY-MM-DD
+        return mskDate.toDateString(); 
+    };
+
+    const now = new Date();
+    const currentGamingDay = getGamingDayId(now);
+    
+    let lastAdvanceGamingDay = null;
+    if (user.lastCampaignAdvanceDate) {
+        lastAdvanceGamingDay = getGamingDayId(new Date(user.lastCampaignAdvanceDate));
+    }
+
+    // Can advance if: Day is complete AND (Never advanced OR advanced on a previous gaming day)
+    const isLockedByTime = lastAdvanceGamingDay === currentGamingDay;
+    const canAdvance = isDayComplete && !isLockedByTime;
+
     const getCharacterImage = (char: string) => {
         switch(char) {
             case 'wizard': return <div className="w-16 h-16 bg-blue-500 rounded-full flex items-center justify-center text-3xl shadow-lg border-2 border-white">🧙‍♂️</div>;
@@ -120,6 +151,7 @@ const CampaignView: React.FC<CampaignViewProps> = ({
                                 </h3>
                                 <div className="text-sm font-bold text-slate-400">
                                     {completedCount} / {totalCount} Выполнено
+                                    <span className="text-xs text-slate-500 ml-2">(Нужно 66%)</span>
                                 </div>
                             </div>
                             <div className="space-y-4">
@@ -170,14 +202,27 @@ const CampaignView: React.FC<CampaignViewProps> = ({
                                         </>
                                     ) : (
                                         <>
-                                        <h3 className="text-xl font-bold text-white mb-2">День Завершен!</h3>
-                                        <p className="text-emerald-200 text-sm mb-4">Ты справился с испытаниями. Награда ждет.</p>
-                                        <button 
-                                            onClick={onAdvanceDay}
-                                            className="bg-emerald-500 hover:bg-emerald-400 text-white font-bold py-3 px-8 rounded-xl shadow-lg shadow-emerald-500/30 transition-transform hover:-translate-y-1 active:scale-95 flex items-center justify-center mx-auto gap-2"
-                                        >
-                                            <CheckCircle size={20} /> Получить Награду и Отдохнуть
-                                        </button>
+                                        <h3 className="text-xl font-bold text-white mb-2">День Пройден!</h3>
+                                        {canAdvance ? (
+                                            <>
+                                            <p className="text-emerald-200 text-sm mb-4">Путь свободен. Отправляйся дальше.</p>
+                                            <button 
+                                                onClick={onAdvanceDay}
+                                                className="bg-emerald-500 hover:bg-emerald-400 text-white font-bold py-3 px-8 rounded-xl shadow-lg shadow-emerald-500/30 transition-transform hover:-translate-y-1 active:scale-95 flex items-center justify-center mx-auto gap-2"
+                                            >
+                                                <CheckCircle size={20} /> Начать Следующий День
+                                            </button>
+                                            </>
+                                        ) : (
+                                            <div className="bg-black/30 p-4 rounded-xl border border-amber-500/20 inline-block">
+                                                <div className="flex items-center justify-center gap-2 mb-2 text-amber-400 font-bold">
+                                                    <Lock size={18} /> Привал до рассвета
+                                                </div>
+                                                <p className="text-slate-400 text-sm">
+                                                    Герои отдыхают. Следующий поход доступен завтра после 06:00 МСК.
+                                                </p>
+                                            </div>
+                                        )}
                                         </>
                                     )}
                                 </motion.div>

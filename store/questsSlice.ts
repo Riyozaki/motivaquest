@@ -271,15 +271,14 @@ const rawQuests: any[] = [
     { id: 10, title: "Римские цифры", description: "Древний счет", category: "Math", rarity: "Rare", xp: 30, coins: 20, tasks: [
         t('matching', "Цифры", "", { pairs: [{left:'V', right:'5'}, {left:'IX', right:'9'}, {left:'X', right:'10'}] })
     ]},
-    { id: 69, title: "Режим сна", description: "Ложись вовремя", category: "Self", rarity: "Rare", xp: 40, coins: 30, tasks: [
-        t('checklist', "Сон", "", { checklistItems: [{id:'1', label: 'Убрал телефон за час'}, {id:'2', label: 'Проветрил комнату'}, {id:'3', label: 'Лег до 23:00'}]})
-    ]},
 ];
 
 // Map raw to full Quest object
 const questsDatabase: Quest[] = rawQuests.map(q => {
-    // Determine if it's a "Habit" (routine task) based on category
-    const isHabitCategory = ['Sport', 'Self', 'Ecology', 'Social', 'Art'].includes(q.category);
+    // Only specific IDs are treated as recurring Habits
+    // 55: Зарядка, 65: Уборка, 69: Режим сна
+    const HABIT_IDS = [55, 65, 69];
+    const isHabit = HABIT_IDS.includes(q.id);
     
     // Auto-assign difficulty based on rarity
     let difficulty = q.difficulty;
@@ -298,7 +297,7 @@ const questsDatabase: Quest[] = rawQuests.map(q => {
     return {
         ...q,
         type: q.type || 'daily',
-        isHabit: isHabitCategory, 
+        isHabit, 
         completed: false,
         minMinutes: getMinMinutes(q.rarity),
         difficulty,
@@ -397,6 +396,7 @@ export const completeQuestAction = createAsyncThunk(
             questId: quest.id, 
             questTitle: quest.title, 
             xpEarned: xpReward,
+            coinsEarned: coinsReward, // Add this
             date: new Date().toISOString(),
             score: multiplier,
             category: quest.category

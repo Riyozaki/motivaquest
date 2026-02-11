@@ -65,7 +65,7 @@ const initialState: UserState = {
       equipSkin: false,
       regen: false
   },
-  nextRegenTime: Date.now() + 5 * 60 * 1000, // Initialize with 5 min from now
+  nextRegenTime: Date.now() + 60 * 1000, // Reduced to 1 minute
   pendingSyncCount: 0
 };
 
@@ -91,6 +91,7 @@ const DEFAULT_USER_DATA: Partial<UserProfile> = {
     suspiciousFlags: 0,
     streakDays: 0,
     streakTakenToday: false,
+    lastCampaignAdvanceDate: undefined,
     campaign: {
         currentDay: 1,
         isDayComplete: false,
@@ -111,6 +112,7 @@ const mapSheetToUser = (rawData: any): UserProfile => {
         questTitle: q.questName || q.visitorName || 'Unknown',
         date: q.completedAt || q.timestamp || new Date().toISOString(),
         xpEarned: Number(q.xpEarned) || 0,
+        coinsEarned: Number(q.coinsEarned) || 0,
         score: Number(q.score) || 0,
         category: q.category
     })) : [];
@@ -121,9 +123,36 @@ const mapSheetToUser = (rawData: any): UserProfile => {
 
     const campaignData = {
         currentDay: campaignProg ? Number(campaignProg.currentDay) : (Number(info.currentLevel) || 1), 
+        // We do NOT trust the sheet for isDayComplete unless explicitly saved, logic below handles recalculation
         isDayComplete: false, 
         unlockedAllies: Array.isArray(info.unlockedAllies) ? info.unlockedAllies : []
     };
+
+    // Calculate Last Mood Timestamp
+    const userEmail = user.email.toLowerCase().trim();
+    const localMoodTs = localStorage.getItem(`motiva_mood_ts_${userEmail}`);
+    let mappedMoodDate: string | undefined = undefined;
+
+    if (info.mood && info.mood !== 'neutral') {
+        if (localMoodTs) {
+             mappedMoodDate = localMoodTs;
+        } else {
+             mappedMoodDate = new Date(Date.now() - 20 * 60 * 1000).toISOString();
+        }
+    }
+
+    // Re-verify campaign completion on load (2/3 rule)
+    const currentStoryDay = CAMPAIGN_DATA.find(d => d.day === campaignData.currentDay);
+    if (currentStoryDay) {
+        const requiredIds = currentStoryDay.questIds;
+        const completedIds = new Set(mappedHistory.map(h => h.questId));
+        const completedCount = requiredIds.filter(id => completedIds.has(id)).length;
+        const threshold = Math.ceil(requiredIds.length * (2/3)); // 2/3 Rule
+        
+        if (completedCount >= threshold) {
+            campaignData.isDayComplete = true;
+        }
+    }
 
     return {
         ...DEFAULT_USER_DATA,
@@ -140,6 +169,8 @@ const mapSheetToUser = (rawData: any): UserProfile => {
         lastLoginDate: progress.lastLoginDate,
         totalQuestsCompleted: Number(progress.totalQuestsCompleted) || 0,
         weeklyXp: Number(progress.weeklyXp) || 0,
+        weeklyXpResetDate: progress.weeklyXpResetDate,
+        tutorialCompleted: progress.tutorialCompleted === true || progress.tutorialCompleted === 'true',
         
         avatar: progress.visitorAvatar || 'warrior',
         heroClass: info.heroClass || undefined,
@@ -151,9 +182,11 @@ const mapSheetToUser = (rawData: any): UserProfile => {
         inventory: Array.isArray(info.purchases) ? info.purchases.map((p: any) => p.itemId) : [],
         achievements: Array.isArray(info.achievements) ? info.achievements.map((a: any) => a.id) : [],
         questHistory: mappedHistory,
+        habitStreaks: info.habitStreaks || {}, // Important: Map streaks from DB
         campaign: campaignData,
+        lastCampaignAdvanceDate: info.lastCampaignAdvanceDate,
         
-        lastDailyMood: info.mood !== 'neutral' ? new Date().toISOString() : undefined, 
+        lastDailyMood: mappedMoodDate,
         completedQuests: mappedHistory.length,
         hasParentalConsent: true,
     } as UserProfile;
@@ -182,7 +215,6 @@ export const regenerateStats = createAsyncThunk(
         let updated = false;
 
         // Regenerate MP (Max 10). MP = 10 - dailyCompletionsCount.
-        // Reducing dailyCompletionsCount effectively regenerates MP.
         if (user.dailyCompletionsCount > 0) {
             newDailyCompletions = Math.max(0, user.dailyCompletionsCount - 1);
             updated = true;
@@ -195,13 +227,9 @@ export const regenerateStats = createAsyncThunk(
         }
 
         if (updated) {
-            // Optimistic update happens in reducer based on payload, then syncs
             try {
-                // Sync to backend fire-and-forget
                 api.updateProgress(user.email, { 
                     currentHp: newHp, 
-                    // Note: API might need explicit MP field, or just dailyCompletions if it tracks it. 
-                    // Assuming dailyCompletionsCount is tracked.
                 }).catch(console.warn);
             } catch (e) {
                 console.warn("Regen sync failed");
@@ -234,6 +262,7 @@ export const initAuth = createAsyncThunk('user/initAuth', async (_, { dispatch }
 
             if (!loginRes.alreadyLoggedIn) {
                 const bonusMultiplier = 1 + (normalizedUser.streakDays * 0.1);
+                // Math.floor to ensure integers
                 const coinsEarned = Math.floor(50 * bonusMultiplier);
                 const xpEarned = Math.floor(100 * bonusMultiplier);
                 
@@ -297,7 +326,8 @@ export const loginLocal = createAsyncThunk(
     let reward = null;
     if (loginRes.success && !loginRes.alreadyLoggedIn) {
          const bonusMultiplier = 1 + (loginRes.streakDays * 0.1);
-         reward = { coins: 50 * bonusMultiplier, xp: 100 * bonusMultiplier, streak: loginRes.streakDays, bonusMultiplier };
+         // Math.floor for integers
+         reward = { coins: Math.floor(50 * bonusMultiplier), xp: Math.floor(100 * bonusMultiplier), streak: loginRes.streakDays, bonusMultiplier };
          dispatch(addExperience({ xp: reward.xp, coins: reward.coins }));
          normalizedUser.streakDays = loginRes.streakDays;
     }
@@ -346,6 +376,12 @@ export const updateUserProfile = createAsyncThunk(
             selectedTheme: updates.themeColor,
             tutorialCompleted: updates.tutorialCompleted
         });
+        
+        // If lastCampaignAdvanceDate is updated, we might want to sync it specifically via updateInfo if updateProfile doesn't handle it
+        if (updates.lastCampaignAdvanceDate) {
+            api.updateInfo(currentUser.email, { lastCampaignAdvanceDate: updates.lastCampaignAdvanceDate }).catch(console.warn);
+        }
+
     } catch(e) { handleApiError(e); }
     return updates;
   }
@@ -443,7 +479,10 @@ export const submitDailyMood = createAsyncThunk(
             await api.setDailyReport(user.email, {
                 date: payload.date,
                 score: payload.motivationScore
-            }); 
+            });
+            // Persist local timestamp to prevent reset on reload
+            const userEmail = user.email.toLowerCase().trim();
+            localStorage.setItem(`motiva_mood_ts_${userEmail}`, payload.date);
         } catch(e) { handleApiError(e); }
         
         await dispatch(addExperience({ xp: 30, coins: 15 }));
@@ -547,6 +586,7 @@ const userSlice = createSlice({
             state.currentUser.campaign = { currentDay: 1, isDayComplete: false, unlockedAllies: [] };
             state.currentUser.completedQuests = 0;
             state.currentUser.questHistory = [];
+            state.currentUser.lastCampaignAdvanceDate = undefined;
         }
     }
   },
@@ -560,7 +600,7 @@ const userSlice = createSlice({
             state.dailyRewardPopup = action.payload.reward;
         }
         state.loading = false;
-        state.nextRegenTime = Date.now() + 5 * 60 * 1000; // Reset regen timer on load
+        state.nextRegenTime = Date.now() + 60 * 1000; // Reset regen timer (1 min)
       })
       .addCase(initAuth.rejected, (state) => { state.pendingActions.auth = false; })
       
@@ -568,17 +608,17 @@ const userSlice = createSlice({
       .addCase(registerLocal.fulfilled, (state, action) => { 
           state.currentUser = action.payload.user;
           state.dailyRewardPopup = action.payload.reward;
-          state.nextRegenTime = Date.now() + 5 * 60 * 1000;
+          state.nextRegenTime = Date.now() + 60 * 1000;
       })
       .addCase(loginLocal.fulfilled, (state, action) => { 
           state.currentUser = action.payload.user; 
           state.dailyRewardPopup = action.payload.reward;
-          state.nextRegenTime = Date.now() + 5 * 60 * 1000;
+          state.nextRegenTime = Date.now() + 60 * 1000;
       })
       .addCase(loginDemo.fulfilled, (state, action) => { 
           state.currentUser = action.payload.user;
           state.dailyRewardPopup = action.payload.reward;
-          state.nextRegenTime = Date.now() + 5 * 60 * 1000;
+          state.nextRegenTime = Date.now() + 60 * 1000;
       })
       .addCase(logoutLocal.fulfilled, (state) => { state.currentUser = null; })
       .addCase(updateUserProfile.fulfilled, (state, action) => {
@@ -597,7 +637,7 @@ const userSlice = createSlice({
               state.currentUser.currentHp = action.payload.newHp;
               state.currentUser.dailyCompletionsCount = action.payload.newDailyCompletions;
           }
-          state.nextRegenTime = Date.now() + 5 * 60 * 1000; // Reset timer
+          state.nextRegenTime = Date.now() + 60 * 1000; // Reset timer (1 min)
       })
 
       .addCase(addExperience.fulfilled, (state, action) => {
@@ -670,21 +710,31 @@ const userSlice = createSlice({
           state.currentUser.dailyCompletionsCount = (state.currentUser.dailyCompletionsCount || 0) + 1;
           state.currentUser.currentHp = Math.max(0, state.currentUser.currentHp - hpLost);
 
+          // IMPORTANT: Update local streaks immediately for UI
           if (quest.isHabit) {
               const currentStreak = (state.currentUser.habitStreaks?.[quest.id] || 0) + 1;
-              state.currentUser.habitStreaks = { ...(state.currentUser.habitStreaks || {}), [quest.id]: currentStreak };
+              state.currentUser.habitStreaks = { 
+                  ...(state.currentUser.habitStreaks || {}), 
+                  [quest.id]: currentStreak 
+              };
+              // Persist streaks to backend
+              api.updateInfo(state.currentUser.email, { habitStreaks: state.currentUser.habitStreaks }).catch(console.warn);
           }
           
-          // Check campaign progression via quests
+          // Check campaign progression via quests (2/3 Rule)
           if (state.currentUser.campaign) {
             const currentStoryDay = CAMPAIGN_DATA.find(d => d.day === state.currentUser!.campaign.currentDay);
             if (currentStoryDay) {
                 const requiredIds = currentStoryDay.questIds;
                 const completedIds = new Set(state.currentUser.questHistory.map(h => h.questId));
-                const allDone = requiredIds.every(id => completedIds.has(id));
-                if (allDone && !state.currentUser.campaign.isDayComplete) {
+                
+                // Count how many required quests are done
+                const completedCount = requiredIds.filter(id => completedIds.has(id)).length;
+                const threshold = Math.ceil(requiredIds.length * (2/3)); // 2/3 Rule
+
+                if (completedCount >= threshold && !state.currentUser.campaign.isDayComplete) {
                     state.currentUser.campaign.isDayComplete = true;
-                    toast.success("Все задания дня выполнены!", { autoClose: false });
+                    toast.success("День пройден! (2/3 заданий)", { autoClose: false });
                 }
             }
           }

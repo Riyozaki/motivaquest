@@ -23,7 +23,7 @@ import ErrorBoundary from './components/ErrorBoundary';
 import 'chart.js/auto'; 
 import { AnimatePresence } from 'framer-motion';
 import { ThemeColor } from './types';
-import { regenerateStats } from './store/userSlice';
+import { regenerateStats, updateUserProfile } from './store/userSlice';
 import { api } from './services/api';
 import Modal from 'react-modal';
 
@@ -159,18 +159,35 @@ const AppContent: React.FC = () => {
       return () => window.removeEventListener('online', handleOnline);
   }, []);
 
-  // Start tour ONLY if user has a grade (Modal closed)
+  // Start tour ONLY if user has a grade (Modal closed) and hasn't seen it yet
   useEffect(() => {
-    if (user && user.grade && location.pathname === '/' && !localStorage.getItem('motiva_tour_completed')) {
+    if (!user || !user.email || !user.grade || location.pathname !== '/') return;
+
+    const userEmail = user.email.toLowerCase().trim();
+    const storageKey = `motiva_tour_completed_${userEmail}`;
+    const isLocalDone = localStorage.getItem(storageKey);
+    const isProfileDone = user.tutorialCompleted;
+
+    if (!isLocalDone && !isProfileDone) {
       setRunTour(true);
+    } else {
+        // Ensure local storage is consistent if profile is done
+        if (isProfileDone && !isLocalDone) {
+            localStorage.setItem(storageKey, 'true');
+        }
+        setRunTour(false);
     }
-  }, [user, user?.grade, location.pathname]);
+  }, [user, location.pathname]);
 
   const handleTourCallback = (data: CallBackProps) => {
     const { status } = data;
     if ([STATUS.FINISHED, STATUS.SKIPPED].includes(status)) {
       setRunTour(false);
-      localStorage.setItem('motiva_tour_completed', 'true');
+      if (user && user.email) {
+          const userEmail = user.email.toLowerCase().trim();
+          localStorage.setItem(`motiva_tour_completed_${userEmail}`, 'true');
+          dispatch(updateUserProfile({ tutorialCompleted: true }));
+      }
     }
   };
 

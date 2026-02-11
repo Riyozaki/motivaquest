@@ -1,6 +1,6 @@
 import React, { useState, useRef, useMemo } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { Award, Zap, Coins, CheckCircle, Sword, Edit2, Shield, Heart, Target, Sparkles, Map, Package, Save, TrendingUp, Calendar, Palette, History, Share2, Download, Upload, User, Crown, AlertCircle } from 'lucide-react';
+import { Award, Zap, Coins, CheckCircle, Sword, Edit2, Shield, Heart, Target, Sparkles, Map, Package, Save, TrendingUp, Calendar, Palette, History, Share2, Download, Upload, User, Crown, AlertCircle, Ghost } from 'lucide-react';
 import { RootState, AppDispatch } from '../store';
 import { updateUserProfile, equipSkinAction, importSaveData, setThemeColor, changeHeroClass, selectIsPending } from '../store/userSlice';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -33,12 +33,20 @@ ChartJS.register(
   Legend
 );
 
+// Standard Class Skins
 const AVATAR_OPTIONS = [
   { id: 'warrior', icon: Sword, label: 'Воин', color: 'from-red-500 to-orange-600' },
   { id: 'mage', icon: Sparkles, label: 'Маг', color: 'from-purple-500 to-indigo-600' },
   { id: 'rogue', icon: Target, label: 'Лучник', color: 'from-emerald-500 to-teal-600' },
   { id: 'cleric', icon: Heart, label: 'Целитель', color: 'from-pink-500 to-rose-600' },
   { id: 'explorer', icon: Map, label: 'Искатель', color: 'from-blue-500 to-cyan-600' },
+];
+
+// Unique Premium Skins
+const PREMIUM_SKINS = [
+    { id: 'skin_ninja', icon: Ghost, label: 'Тень Знаний', color: 'from-slate-700 to-black border-slate-500' },
+    { id: 'skin_wizard', icon: Zap, label: 'Архимаг', color: 'from-fuchsia-600 to-purple-900 border-fuchsia-400' },
+    { id: 'skin_paladin', icon: Shield, label: 'Рыцарь Пера', color: 'from-amber-300 to-yellow-600 border-amber-400' },
 ];
 
 const HERO_CLASSES: { id: HeroClass, name: string, bonus: string, icon: any, color: string }[] = [
@@ -85,14 +93,13 @@ const Profile: React.FC = () => {
         const d = new Date();
         d.setDate(d.getDate() - i);
         // Normalize to local date string for comparison to avoid timezone mismatch
-        const dateStr = d.toLocaleDateString('ru-RU'); // DD.MM.YYYY format usually or locale dependent
+        const dateStr = d.toLocaleDateString('ru-RU'); 
         
         // Format label (e.g., "Mon, 12.05")
         const label = d.toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'numeric' });
         labels.push(label);
 
         // Find history items for this day
-        // We convert both to local date string to match day-to-day
         const dayHistory = (user.questHistory || []).filter(h => {
             const hDate = new Date(h.date);
             return hDate.toLocaleDateString('ru-RU') === dateStr;
@@ -103,11 +110,15 @@ const Profile: React.FC = () => {
         questCounts.push(qCount);
         totalQuestsWeek += qCount;
 
-        // Sum coins (lookup quest value)
+        // Sum coins from actual history data
         const cCount = dayHistory.reduce((acc, item) => {
+            if (item.coinsEarned !== undefined && item.coinsEarned > 0) {
+                return acc + item.coinsEarned;
+            }
             const quest = questsList.find(q => q.id === item.questId);
             return acc + (quest ? quest.coins : 0);
         }, 0);
+        
         coinCounts.push(cCount);
         totalCoinsWeek += cCount;
     }
@@ -223,26 +234,14 @@ const Profile: React.FC = () => {
     }
   };
 
-  const handleShare = () => {
-      const lastQuests = user.questHistory?.slice(-3).map(q => q.questTitle).join(', ');
-      const text = `Я выполнил: ${lastQuests} в MotivaQuest! У меня ${user.level} уровень.`;
-      navigator.clipboard.writeText(text);
-      toast.success("Твои подвиги скопированы! Поделись ими.");
-  };
-
-  // Safe fallback if user.avatar maps to nothing (e.g. premium skin ID not in default list)
-  // For visuals, if it's a premium skin, we might need a fallback or map it.
-  // Assuming shopItems has the mapping.
-  let CurrentAvatarData = AVATAR_OPTIONS.find(a => a.id === user.avatar);
+  // Determine current Avatar Data
+  let CurrentAvatarData: any = AVATAR_OPTIONS.find(a => a.id === user.avatar);
+  
   if (!CurrentAvatarData) {
-      // Try to find in owned skins
-      const premiumSkin = mySkins.find(s => s.value === user.avatar);
-      if (premiumSkin) {
-          // Map premium skin value back to a basic class for Icon/Color
-          // E.g. 'rogue' -> find rogue in AVATAR_OPTIONS
-          CurrentAvatarData = AVATAR_OPTIONS.find(a => a.id === premiumSkin.value);
-      }
+      // Check premium skins
+      CurrentAvatarData = PREMIUM_SKINS.find(a => a.id === user.avatar);
   }
+  
   // Ultimate fallback
   if (!CurrentAvatarData) CurrentAvatarData = AVATAR_OPTIONS[0];
 
@@ -397,8 +396,9 @@ const Profile: React.FC = () => {
                   {/* Default Skins */}
                   {AVATAR_OPTIONS.map(skin => {
                       // It is equipped if avatar matches ID AND user doesn't own a premium skin that uses this ID value.
-                      // This ensures if I own "Skin Ninja" (rogue), the "Default Rogue" card is NOT highlighted.
-                      const isEquipped = user.avatar === skin.id && !mySkins.some(s => s.value === skin.id);
+                      // Note: Premium skins have their own IDs now (skin_ninja), distinct from 'rogue'.
+                      // If user.avatar is 'rogue', this lights up.
+                      const isEquipped = user.avatar === skin.id;
                       return (
                           <div key={skin.id} onClick={() => handleEquip(skin.id)} 
                             className={`p-4 rounded-xl border-2 cursor-pointer transition-all flex flex-col items-center relative overflow-hidden ${isEquipped ? 'border-primary-500 bg-primary-500/10' : 'border-slate-700 hover:border-slate-500'}`}>
@@ -410,12 +410,17 @@ const Profile: React.FC = () => {
                   })}
                   {/* Premium Skins */}
                   {mySkins.map(skin => {
-                      const isEquipped = user.avatar === skin.value;
+                      const isEquipped = user.avatar === skin.id;
+                      // Find custom visual for this premium skin, or fallback
+                      const visual = PREMIUM_SKINS.find(p => p.id === skin.id);
+                      const Icon = visual ? visual.icon : User;
+                      const label = visual ? visual.label : skin.name;
+
                       return (
-                          <div key={skin.id} onClick={() => handleEquip(skin.value)}
+                          <div key={skin.id} onClick={() => handleEquip(skin.id)}
                              className={`p-4 rounded-xl border-2 cursor-pointer transition-all flex flex-col items-center relative overflow-hidden ${isEquipped ? 'border-primary-500 bg-primary-500/10' : 'border-slate-700 hover:border-slate-500'}`}>
-                              <User size={32} className="mb-2 text-primary-300" />
-                              <span className="text-xs font-bold text-slate-400">{skin.name}</span>
+                              <Icon size={32} className={`mb-2 ${isEquipped ? 'text-primary-300' : 'text-slate-300'}`} />
+                              <span className="text-xs font-bold text-slate-400">{label}</span>
                               {isEquipped && <span className="text-[10px] text-primary-400 mt-1">ЭКИПИРОВАНО</span>}
                           </div>
                       )
@@ -501,54 +506,23 @@ const Profile: React.FC = () => {
                   </div>
                   <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-700/50 flex items-center gap-4">
                       <div className="p-3 bg-amber-900/20 rounded-full text-amber-400 border border-amber-500/30">
-                          <TrendingUp size={24} />
+                          <Coins size={24} />
                       </div>
                       <div>
-                          <p className="text-xs text-slate-500 uppercase font-bold">Заработок (7 дней)</p>
-                          <p className="text-2xl font-black text-amber-400">{statsData.totalCoins}</p>
+                          <p className="text-xs text-slate-500 uppercase font-bold">Золото (7 дней)</p>
+                          <p className="text-2xl font-black text-white">{statsData.totalCoins}</p>
                       </div>
                   </div>
                </div>
 
-               {/* Quest History List */}
-               <div className="bg-slate-900/40 p-4 rounded-2xl border border-slate-700/30">
-                   <div className="flex justify-between items-center mb-4">
-                       <h4 className="text-slate-300 font-bold flex items-center gap-2 text-sm uppercase tracking-wide">
-                           <History size={16} className="text-blue-400"/> Лента Подвигов
-                       </h4>
-                       <button onClick={handleShare} className="text-xs font-bold text-primary-400 hover:text-white flex items-center gap-1">
-                           <Share2 size={12} /> Поделиться
-                       </button>
-                   </div>
-                   <div className="space-y-2 max-h-64 overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-slate-700">
-                       {[...(user.questHistory || [])].reverse().slice(0, 20).map((h, i) => (
-                           <div key={i} className="flex justify-between items-center text-sm p-2 rounded bg-slate-800/50 border border-slate-700/50">
-                               <span className="text-slate-300 truncate mr-2">{h.questTitle || `Квест #${h.questId}`}</span>
-                               <div className="flex items-center gap-3 shrink-0">
-                                   <span className="text-purple-400 font-bold">+{h.xpEarned} XP</span>
-                                   <span className="text-slate-500 text-xs">{new Date(h.date).toLocaleDateString()}</span>
-                               </div>
-                           </div>
-                       ))}
-                       {(!user.questHistory || user.questHistory.length === 0) && (
-                           <div className="text-center text-slate-500 py-4 text-xs">Пока тишина... Соверши подвиг!</div>
-                       )}
-                   </div>
+               <div className="glass-panel p-4 rounded-xl border border-slate-700/50 h-64">
+                   <h4 className="text-sm font-bold text-slate-400 mb-4">Активность (Квесты)</h4>
+                   <Bar data={questsChartData} options={commonOptions} />
                </div>
-
-               <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                  <div className="h-64 md:h-80 bg-slate-900/40 p-4 rounded-2xl border border-slate-700/30">
-                      <h4 className="text-slate-300 font-bold mb-4 flex items-center gap-2 text-sm uppercase tracking-wide">
-                          <Calendar size={16} className="text-primary-400"/> Активность по квестам
-                      </h4>
-                      <Bar data={questsChartData} options={commonOptions as any} />
-                  </div>
-                  <div className="h-64 md:h-80 bg-slate-900/40 p-4 rounded-2xl border border-slate-700/30">
-                      <h4 className="text-slate-300 font-bold mb-4 flex items-center gap-2 text-sm uppercase tracking-wide">
-                          <Coins size={16} className="text-amber-400"/> Приток Золота
-                      </h4>
-                      <Line data={coinsChartData} options={commonOptions as any} />
-                  </div>
+               
+               <div className="glass-panel p-4 rounded-xl border border-slate-700/50 h-64">
+                   <h4 className="text-sm font-bold text-slate-400 mb-4">Доходы (Монеты)</h4>
+                   <Line data={coinsChartData} options={commonOptions} />
                </div>
             </div>
           )}

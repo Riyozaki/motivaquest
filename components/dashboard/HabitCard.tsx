@@ -1,5 +1,5 @@
 import React from 'react';
-import { Check, CheckCircle, Flame, Plus, Loader2 } from 'lucide-react';
+import { Check, CheckCircle, Flame, Plus, Loader2, Clock } from 'lucide-react';
 import { Quest } from '../../types';
 import LoadingOverlay from '../LoadingOverlay';
 
@@ -17,20 +17,21 @@ const HabitCard: React.FC<HabitCardProps> = ({ q, streak, isDone, isPendingQuest
 
     return (
         <LoadingOverlay isLoading={isPendingQuest && !isDone} message="" className="rounded-xl">
-        <div className={`flex flex-col p-3 mb-2 bg-slate-800/40 rounded-xl border border-slate-700/50 transition-all ${isDone ? 'opacity-70 border-emerald-500/30' : 'hover:border-slate-500 hover:bg-slate-800/60'}`}>
+        <div className={`flex flex-col p-3 mb-2 bg-slate-800/40 rounded-xl border border-slate-700/50 transition-all ${isDone ? 'opacity-80 border-emerald-500/30' : 'hover:border-slate-500 hover:bg-slate-800/60'}`}>
             <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-3">
                     <div className={`p-2 rounded-lg ${isDone ? 'text-emerald-500 bg-emerald-500/10' : 'text-blue-400 bg-blue-500/10'}`}>
                         {isDone ? <CheckCircle size={18} /> : <Flame size={18} />}
                     </div>
                     <div>
-                        <h4 className={`text-sm font-bold ${isDone ? 'text-slate-500 line-through' : 'text-slate-200'}`}>{q.title}</h4>
+                        <h4 className={`text-sm font-bold ${isDone ? 'text-slate-400' : 'text-slate-200'}`}>{q.title}</h4>
+                        {isDone && <p className="text-[10px] text-emerald-500 font-bold flex items-center gap-1"><Clock size={10}/> Доступно завтра</p>}
                     </div>
                 </div>
                 <div className="flex items-center gap-1">
                     {isDone ? (
-                        <div className="px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 text-xs font-bold flex items-center gap-1">
-                            <Check size={14} /> Готово
+                        <div className="px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 text-xs font-bold flex items-center gap-1 border border-emerald-500/20">
+                            <Check size={14} /> Выполнено
                         </div>
                     ) : (
                         <button 

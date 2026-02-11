@@ -49,7 +49,8 @@ export const advanceCampaignDay = createAsyncThunk(
                 currentDay: nextDay > 14 ? 14 : nextDay, 
                 isDayComplete: false,
                 unlockedAllies: newAllies
-            }
+            },
+            lastCampaignAdvanceDate: new Date().toISOString() // LOCK the day
         };
 
         await dispatch(updateUserProfile(updates));

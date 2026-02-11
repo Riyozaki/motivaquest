@@ -98,6 +98,7 @@ export interface QuestHistoryItem {
   questId: number;
   questTitle: string; 
   xpEarned: number;
+  coinsEarned?: number;
   date: string; 
   score?: number;
   category?: string;
@@ -168,6 +169,7 @@ export interface UserProfile {
   tutorialCompleted?: boolean;
 
   // Story Mode
+  lastCampaignAdvanceDate?: string; // ISO Date string of last advancement
   campaign: {
     currentDay: number;
     isDayComplete: boolean;
