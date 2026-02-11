@@ -14,6 +14,33 @@ import LandingPage from '../components/LandingPage';
 import DashboardView from '../components/dashboard/DashboardView';
 import CampaignView from '../components/dashboard/CampaignView';
 
+const HomeSkeleton = () => (
+    <div className="animate-pulse space-y-8 max-w-7xl mx-auto w-full">
+        {/* Hero */}
+        <div className="h-64 bg-slate-800/40 rounded-3xl w-full border border-slate-700/30 relative overflow-hidden">
+             <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent -translate-x-full animate-[shimmer_2s_infinite]"></div>
+        </div>
+        
+        {/* Mood */}
+        <div className="h-32 bg-slate-800/40 rounded-3xl w-full border border-slate-700/30"></div>
+
+        {/* Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+            {[1, 2, 3].map(i => (
+                <div key={i} className="h-96 bg-slate-800/40 rounded-2xl border border-slate-700/30 p-6 space-y-4">
+                    <div className="h-6 w-1/3 bg-slate-700/50 rounded"></div>
+                    <div className="h-4 w-2/3 bg-slate-700/40 rounded"></div>
+                    <div className="space-y-3 mt-6">
+                        {[1, 2, 3].map(j => (
+                             <div key={j} className="h-20 bg-slate-700/20 rounded-xl"></div>
+                        ))}
+                    </div>
+                </div>
+            ))}
+        </div>
+    </div>
+);
+
 const StoryDashboard: React.FC = () => {
   const { user } = useAuth();
   const dispatch = useDispatch<AppDispatch>();
@@ -30,6 +57,20 @@ const StoryDashboard: React.FC = () => {
       dispatch(fetchQuests());
     }
   }, [status, dispatch]);
+
+  if (status === 'loading') {
+      return (
+        <div className="relative pb-20">
+             <div className="flex justify-center mb-8">
+                  <div className="bg-slate-900/80 backdrop-blur rounded-2xl p-1 flex gap-1 border border-slate-700/50 shadow-xl opacity-80 pointer-events-none">
+                      <div className="px-6 py-2 rounded-xl bg-slate-800 text-slate-500 flex items-center gap-2"><HomeIcon size={16} /></div>
+                      <div className="px-6 py-2 rounded-xl text-slate-600 flex items-center gap-2"><MapIcon size={16} /></div>
+                  </div>
+              </div>
+            <HomeSkeleton />
+        </div>
+      );
+  }
 
   if (!user) return null;
 

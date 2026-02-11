@@ -37,6 +37,14 @@ const Login: React.FC = () => {
       setError('Заполните поля, путник.');
       return;
     }
+
+    // Email validation regex
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(formData.email)) {
+        setError('Неверный формат магической почты');
+        return;
+    }
+
     if (!isLogin && !hasConsent) {
       setError('Нужно согласие старейшин (родителей).');
       setShowConsentModal(true);

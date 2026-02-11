@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Task } from '../../types';
-import { Timer, AlertTriangle } from 'lucide-react';
+import { Timer } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 interface Props {
@@ -14,6 +14,12 @@ const TimerTask: React.FC<Props> = ({ task, onAnswer }) => {
     const [isFinished, setIsFinished] = useState(false);
     const [input, setInput] = useState('');
     const [result, setResult] = useState<'success' | 'fail' | null>(null);
+
+    // Use ref to keep track of input for timer callback to avoid stale closures
+    const inputRef = useRef(input);
+    useEffect(() => {
+        inputRef.current = input;
+    }, [input]);
 
     useEffect(() => {
         let interval: any;
@@ -37,13 +43,17 @@ const TimerTask: React.FC<Props> = ({ task, onAnswer }) => {
         setIsActive(false);
         setIsFinished(true);
         
+        // Access current input value via ref
+        const currentInput = inputRef.current;
+
         if (!submitted) {
             // Time ran out
             setResult('fail');
-            onAnswer(task.id, false, true); // Partial credit for trying? Or fail. Let's give partial if time out but maybe they knew. Actually strict fail for timer usually. Let's do partial=true meaning "failed but acknowledged".
+            onAnswer(task.id, false, true); 
         } else {
             // Check answer
-            const isCorrect = input.trim() === task.correctAnswer || (task.acceptableAnswers && task.acceptableAnswers.includes(input.trim()));
+            const val = currentInput.trim();
+            const isCorrect = val === task.correctAnswer || (task.acceptableAnswers && task.acceptableAnswers.includes(val));
             setResult(isCorrect ? 'success' : 'fail');
             onAnswer(task.id, isCorrect);
         }

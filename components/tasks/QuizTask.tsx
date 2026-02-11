@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Task } from '../../types';
 import { motion } from 'framer-motion';
@@ -28,7 +27,7 @@ const QuizTask: React.FC<Props> = ({ task, onAnswer }) => {
     return (
         <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700">
             <h4 className="font-bold text-white mb-4 text-lg">{task.question}</h4>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3" role="group" aria-label="Варианты ответов">
                 {task.options?.map((opt, idx) => {
                     let btnClass = "bg-slate-700 hover:bg-slate-600 border-slate-600";
                     if (isSubmitted) {
@@ -37,23 +36,31 @@ const QuizTask: React.FC<Props> = ({ task, onAnswer }) => {
                         else btnClass = "bg-slate-800 border-slate-700 opacity-50";
                     }
 
+                    const isPressed = selected === idx;
+
                     return (
                         <motion.button
                             key={idx}
                             whileTap={!isSubmitted ? { scale: 0.98 } : {}}
                             onClick={() => handleSelect(idx)}
-                            className={`p-3 rounded-lg border text-left text-sm font-medium transition-all relative ${btnClass}`}
+                            aria-pressed={isPressed}
                             disabled={isSubmitted}
+                            className={`p-3 rounded-lg border text-left text-sm font-medium transition-all relative ${btnClass} focus:outline-none focus:ring-2 focus:ring-purple-500`}
                         >
                             {opt}
-                            {isSubmitted && idx === task.correctIndex && <Check size={16} className="absolute right-3 top-1/2 -translate-y-1/2" />}
-                            {isSubmitted && idx === selected && idx !== task.correctIndex && <X size={16} className="absolute right-3 top-1/2 -translate-y-1/2" />}
+                            {isSubmitted && idx === task.correctIndex && <Check size={16} className="absolute right-3 top-1/2 -translate-y-1/2" aria-label="Верный ответ" />}
+                            {isSubmitted && idx === selected && idx !== task.correctIndex && <X size={16} className="absolute right-3 top-1/2 -translate-y-1/2" aria-label="Неверный ответ" />}
                         </motion.button>
                     )
                 })}
             </div>
             {isSubmitted && task.explanation && (
-                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="mt-4 p-3 bg-blue-900/20 border-l-4 border-blue-500 rounded text-blue-200 text-sm">
+                <motion.div 
+                    initial={{ opacity: 0, height: 0 }} 
+                    animate={{ opacity: 1, height: 'auto' }} 
+                    className="mt-4 p-3 bg-blue-900/20 border-l-4 border-blue-500 rounded text-blue-200 text-sm"
+                    aria-live="polite"
+                >
                     <strong>Пояснение:</strong> {task.explanation}
                 </motion.div>
             )}

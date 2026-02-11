@@ -25,6 +25,7 @@ import { AnimatePresence } from 'framer-motion';
 import { ThemeColor } from './types';
 import { regenerateStats } from './store/userSlice';
 import { api } from './services/api';
+import Modal from 'react-modal';
 
 // Theme Colors Config
 const THEME_COLORS: Record<ThemeColor, Record<number, string>> = {
@@ -103,6 +104,11 @@ const AppContent: React.FC = () => {
   const prevLevelRef = useRef<number | undefined>(undefined);
   const location = useLocation();
   const [runTour, setRunTour] = useState(false);
+
+  // Initialize Modal accessibility
+  useEffect(() => {
+    Modal.setAppElement('#root');
+  }, []);
 
   // Apply Theme
   useEffect(() => {

@@ -74,6 +74,13 @@
         color: #f1f5f9;
       }
 
+      /* Global Transition for Theme Switching */
+      body, div, span, button, p, h1, h2, h3, h4, h5, h6, input, textarea, a, svg, path {
+        transition-property: background-color, border-color, color, fill, stroke;
+        transition-duration: 300ms;
+        transition-timing-function: ease-in-out;
+      }
+
       h1, h2, h3, h4, .rpg-font {
         font-family: 'Cinzel', serif;
         letter-spacing: 0.05em;
@@ -125,6 +132,8 @@
         opacity: 0;
         animation: twinkle var(--duration) ease-in-out infinite;
         animation-delay: var(--delay);
+        /* Exclude from global theme transition to prevent animation jank */
+        transition: none; 
       }
 
       @keyframes twinkle {

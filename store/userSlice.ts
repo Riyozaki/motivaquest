@@ -616,14 +616,20 @@ const userSlice = createSlice({
               state.currentUser = { ...state.currentUser, ...action.payload };
           }
       })
+      .addCase(purchaseItemAction.pending, (state) => { state.pendingActions.purchase = true; })
       .addCase(purchaseItemAction.fulfilled, (state, action) => {
+          state.pendingActions.purchase = false;
           if (state.currentUser && action.payload) {
               state.currentUser.coins -= action.payload.cost;
               if (!state.currentUser.inventory) state.currentUser.inventory = [];
               state.currentUser.inventory.push(action.payload.id);
           }
       })
+      .addCase(purchaseItemAction.rejected, (state) => { state.pendingActions.purchase = false; })
+
+      .addCase(submitDailyMood.pending, (state) => { state.pendingActions.setMood = true; })
       .addCase(submitDailyMood.fulfilled, (state, action) => {
+          state.pendingActions.setMood = false;
           if (state.currentUser && action.payload) {
               state.currentUser.lastDailyMood = action.payload.date;
               if(!state.currentUser.surveyHistory) state.currentUser.surveyHistory = [];
@@ -636,6 +642,8 @@ const userSlice = createSlice({
               });
           }
       })
+      .addCase(submitDailyMood.rejected, (state) => { state.pendingActions.setMood = false; })
+
       .addCase(importSaveData.fulfilled, (state, action) => {
           state.currentUser = action.payload;
           toast.success("Данные загружены!");

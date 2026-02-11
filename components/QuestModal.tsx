@@ -21,8 +21,6 @@ import OrderingTask from './tasks/OrderingTask';
 import MatchingTask from './tasks/MatchingTask';
 import YesNoTask from './tasks/YesNoTask';
 
-Modal.setAppElement('#root');
-
 interface QuestModalProps {
   quest: Quest | null;
   isOpen: boolean;
@@ -52,9 +50,29 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose, multipl
   
   const [timeLeft, setTimeLeft] = useState(0);
 
+  // Global cleanup for speech synthesis
+  useEffect(() => {
+      return () => {
+          window.speechSynthesis.cancel();
+      };
+  }, []);
+
+  // Restore progress or reset on open
   useEffect(() => {
     if (isOpen && quest) {
-      setTaskResults({});
+      const storageKey = `quest_progress_${quest.id}`;
+      const savedProgress = localStorage.getItem(storageKey);
+      
+      if (savedProgress) {
+          try {
+              setTaskResults(JSON.parse(savedProgress));
+          } catch (e) {
+              console.error("Failed to parse saved quest progress", e);
+              setTaskResults({});
+          }
+      } else {
+          setTaskResults({});
+      }
       setCompleted(false);
     } else {
       window.speechSynthesis.cancel();
@@ -116,11 +134,18 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose, multipl
 
   // Wrapped in useCallback to prevent infinite re-renders in child components (ChecklistTask)
   const handleTaskAnswer = useCallback((taskId: number, isCorrect: boolean, isPartial: boolean = false) => {
-      setTaskResults(prev => ({
-          ...prev,
-          [taskId]: { isCorrect, isPartial }
-      }));
-  }, []);
+      setTaskResults(prev => {
+          const newResults = {
+              ...prev,
+              [taskId]: { isCorrect, isPartial }
+          };
+          // Cache progress to localStorage
+          if (quest) {
+              localStorage.setItem(`quest_progress_${quest.id}`, JSON.stringify(newResults));
+          }
+          return newResults;
+      });
+  }, [quest]);
 
   const renderTask = (task: Task) => {
       switch (task.type) {
@@ -174,6 +199,9 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose, multipl
           // Blocking starts here via Redux pending state
           await dispatch(completeQuestAction({ quest, multiplier: finalMultiplier })).unwrap();
           
+          // Clear cached progress on success
+          localStorage.removeItem(`quest_progress_${quest.id}`);
+
           playQuestComplete(); 
           setCompleted(true);
           dispatch(markQuestCompleted(quest.id));
@@ -185,8 +213,9 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose, multipl
           if (finalMultiplier >= 1.0) {
               toast.success(`Успех! Бонус: x${multiplier}`);
           }
-      } catch (error) {
+      } catch (error: any) {
           console.error("Completion failed", error);
+          toast.error(typeof error === 'string' ? error : (error.message || "Ошибка выполнения квеста."));
       }
   };
 
@@ -194,6 +223,9 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose, multipl
     <Modal
       isOpen={isOpen}
       onRequestClose={!isCompleting ? onClose : undefined}
+      contentLabel={quest.title}
+      role="dialog"
+      ariaHideApp={true}
       className="outline-none focus:outline-none"
       style={{
         overlay: {
@@ -230,7 +262,14 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose, multipl
         
         {/* Header */}
         <div className="bg-gradient-to-r from-purple-900 via-slate-900 to-slate-900 p-4 md:p-6 relative border-b border-white/10 shrink-0">
-             <button disabled={isCompleting} onClick={onClose} className="absolute top-4 right-4 z-30 p-2 bg-slate-800/50 rounded-full text-white/50 hover:text-white hover:bg-slate-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"><X size={20} /></button>
+             <button 
+                disabled={isCompleting} 
+                onClick={onClose} 
+                aria-label="Закрыть квест"
+                className="absolute top-4 right-4 z-30 p-2 bg-slate-800/50 rounded-full text-white/50 hover:text-white hover:bg-slate-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus:ring-2 focus:ring-purple-500 outline-none"
+             >
+                 <X size={20} />
+             </button>
              
              <div className="flex flex-wrap items-center gap-2 mb-2 pr-8">
                  <span className="bg-purple-500/20 text-purple-300 border border-purple-500/30 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest">{quest.category}</span>
@@ -249,7 +288,11 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose, multipl
 
              <h2 className="text-xl md:text-3xl font-bold text-white rpg-font mb-2 text-shadow-lg leading-tight">{quest.title}</h2>
              <div className="flex items-start md:items-center text-slate-400 text-sm italic">
-                 <button onClick={handleSpeak} className="mr-2 mt-0.5 md:mt-0 hover:text-white transition-colors shrink-0">
+                 <button 
+                    onClick={handleSpeak} 
+                    aria-label={isSpeaking ? "Остановить чтение" : "Прочитать задание"}
+                    className="mr-2 mt-0.5 md:mt-0 hover:text-white transition-colors shrink-0 focus:ring-2 focus:ring-purple-500 outline-none rounded-full p-1"
+                 >
                     {isSpeaking ? <StopCircle size={16} /> : <Volume2 size={16} />}
                  </button>
                  <span className="line-clamp-2 md:line-clamp-none">{quest.description}</span>
@@ -260,7 +303,12 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose, multipl
         <div className="p-4 md:p-8 overflow-y-auto bg-slate-900/50 backdrop-blur-sm flex-1 scrollbar-thin scrollbar-thumb-purple-600 scrollbar-track-slate-800">
             <AnimatePresence mode="wait">
             {completed || quest.completed ? (
-              <motion.div initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} className="text-center py-6 md:py-10">
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.8 }} 
+                animate={{ opacity: 1, scale: 1 }} 
+                className="text-center py-6 md:py-10"
+                aria-live="polite"
+              >
                   <div className="inline-block p-4 md:p-6 rounded-full bg-amber-500/20 text-amber-500 mb-6 border border-amber-500/50 shadow-[0_0_30px_rgba(245,158,11,0.3)]">
                       <Trophy size={48} className="md:w-16 md:h-16" />
                   </div>
@@ -277,7 +325,13 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose, multipl
                           <span className="font-bold text-lg md:text-xl text-white">+{Math.floor(quest.xp * multiplier)}</span>
                       </div>
                   </div>
-                  <button disabled={isCompleting} onClick={onClose} className="w-full py-3 rounded-xl border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors font-bold disabled:opacity-50">Закрыть Свиток</button>
+                  <button 
+                    disabled={isCompleting} 
+                    onClick={onClose} 
+                    className="w-full py-3 rounded-xl border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors font-bold disabled:opacity-50 focus:ring-2 focus:ring-purple-500 outline-none"
+                  >
+                      Закрыть Свиток
+                  </button>
               </motion.div>
             ) : (
               <div className="space-y-6">
@@ -290,7 +344,8 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose, multipl
                          <button 
                             onClick={handleStart}
                             disabled={isCompleting}
-                            className="bg-primary-600 hover:bg-primary-500 text-white px-10 py-4 rounded-xl font-bold text-lg shadow-lg hover:shadow-primary-600/30 flex items-center justify-center mx-auto transition-transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                            aria-label="Начать выполнение квеста"
+                            className="bg-primary-600 hover:bg-primary-500 text-white px-10 py-4 rounded-xl font-bold text-lg shadow-lg hover:shadow-primary-600/30 flex items-center justify-center mx-auto transition-transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed focus:ring-2 focus:ring-purple-500 outline-none"
                          >
                              <Play className="mr-2 fill-current" /> Начать Выполнение
                          </button>
@@ -315,7 +370,8 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose, multipl
                 <button 
                    onClick={handleCompleteFlow} 
                    disabled={isCompleting || (timeLeft > 0 && !isAdmin)}
-                   className={`w-full md:w-auto px-8 py-3 rounded-xl font-bold text-white transition-all shadow-lg flex items-center justify-center gap-2
+                   aria-label="Завершить квест и получить награду"
+                   className={`w-full md:w-auto px-8 py-3 rounded-xl font-bold text-white transition-all shadow-lg flex items-center justify-center gap-2 focus:ring-2 focus:ring-purple-500 outline-none
                        ${timeLeft > 0 && !isAdmin
                            ? 'bg-slate-700 text-slate-400 cursor-not-allowed' 
                            : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:shadow-emerald-600/30 hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed'

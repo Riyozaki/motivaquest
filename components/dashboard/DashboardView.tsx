@@ -41,7 +41,8 @@ const getDailyRandomQuests = (allQuests: Quest[]): Quest[] => {
         return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
     };
 
-    const pool = allQuests.filter(q => !q.isHabit && q.type !== 'story');
+    // Filter out habits, story quests, AND completed quests
+    const pool = allQuests.filter(q => !q.isHabit && q.type !== 'story' && !q.completed);
     
     const shuffled = [...pool].sort((a, b) => {
         const rA = seededRandom(cycleIndex + a.id);
@@ -62,8 +63,7 @@ const DashboardView: React.FC<DashboardViewProps> = ({ user, quests, shopItems, 
     const nextRegenTime = useSelector((state: RootState) => state.user.nextRegenTime);
     
     // Derived state
-    const habitIds = [55, 56, 69]; 
-    const habits = quests.filter(q => habitIds.includes(q.id));
+    const habits = quests.filter(q => q.isHabit);
     const dailyChallenges = useMemo(() => getDailyRandomQuests(quests), [quests]);
     const rewards = shopItems.filter(item => item.type === 'consumable').slice(0, 4);
     const currentMp = Math.max(0, 10 - (user.dailyCompletionsCount || 0));

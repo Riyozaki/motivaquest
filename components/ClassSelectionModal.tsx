@@ -6,8 +6,6 @@ import { updateUserProfile } from '../store/userSlice';
 import { GraduationCap, BookOpen, Check } from 'lucide-react';
 import { motion } from 'framer-motion';
 
-Modal.setAppElement('#root');
-
 const ClassSelectionModal: React.FC = () => {
   const dispatch = useDispatch<AppDispatch>();
   const user = useSelector((state: RootState) => state.user.currentUser);

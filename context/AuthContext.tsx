@@ -1,5 +1,4 @@
-
-import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useState, useRef, ReactNode } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { UserProfile } from '../types';
 import { clearUser, initAuth, logoutLocal } from '../store/userSlice';
@@ -25,6 +24,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const userProfile = useSelector((state: RootState) => state.user.currentUser);
   const [loading, setLoading] = useState(true);
   const [timeRemaining, setTimeRemaining] = useState(SESSION_DURATION);
+  
+  // Use refs to track session state independently of renders
+  const sessionStartRef = useRef<number | null>(null);
+  const userRef = useRef<UserProfile | null>(userProfile);
+
+  // Keep userRef current for analytics callbacks
+  useEffect(() => {
+    userRef.current = userProfile;
+  }, [userProfile]);
 
   // 1. Initial Load from LocalStorage
   useEffect(() => {
@@ -35,31 +43,22 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     init();
   }, [dispatch]);
 
-  // 2. Anti-Addiction Timer
-  useEffect(() => {
-    if (!userProfile) {
-      setTimeRemaining(SESSION_DURATION);
-      return;
-    }
-
-    const interval = setInterval(() => {
-      setTimeRemaining((prev) => {
-        if (prev <= 1) {
-          clearInterval(interval);
-          handleSessionExpiry();
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [userProfile]);
-
   const trackSessionEnd = (reason: 'logout' | 'timeout') => {
-      const timeSpentSeconds = SESSION_DURATION - timeRemaining;
-      const timeSpentMinutes = Math.floor(timeSpentSeconds / 60);
-      analytics.track('session_end', userProfile, { reason, durationMinutes: timeSpentMinutes });
+      let durationMinutes = 0;
+      if (sessionStartRef.current) {
+          const elapsedSeconds = (Date.now() - sessionStartRef.current) / 1000;
+          durationMinutes = Math.floor(elapsedSeconds / 60);
+      }
+      analytics.track('session_end', userRef.current, { reason, durationMinutes });
+  };
+
+  const logout = async () => {
+    if (userRef.current) {
+        trackSessionEnd('logout');
+    }
+    await dispatch(logoutLocal());
+    dispatch(clearUser());
+    sessionStartRef.current = null;
   };
 
   const handleSessionExpiry = () => {
@@ -71,16 +70,44 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       draggable: false,
       theme: "colored"
     });
-    logout();
+    // Perform logout cleanup
+    dispatch(logoutLocal());
+    dispatch(clearUser());
+    sessionStartRef.current = null;
   };
 
-  const logout = async () => {
-    if (userProfile) {
-        trackSessionEnd('logout');
+  // 2. Anti-Addiction Timer
+  useEffect(() => {
+    const isLoggedIn = !!userProfile;
+
+    if (!isLoggedIn) {
+      sessionStartRef.current = null;
+      setTimeRemaining(SESSION_DURATION);
+      return;
     }
-    await dispatch(logoutLocal());
-    dispatch(clearUser());
-  };
+
+    // Set start time if it's a new session
+    if (sessionStartRef.current === null) {
+      sessionStartRef.current = Date.now();
+    }
+
+    const interval = setInterval(() => {
+      if (!sessionStartRef.current) return;
+
+      const now = Date.now();
+      const elapsed = Math.floor((now - sessionStartRef.current) / 1000);
+      const remaining = Math.max(0, SESSION_DURATION - elapsed);
+
+      setTimeRemaining(remaining);
+
+      if (remaining <= 0) {
+        clearInterval(interval);
+        handleSessionExpiry();
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [!!userProfile]); // Only depend on boolean existence
 
   return (
     <AuthContext.Provider 

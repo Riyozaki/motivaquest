@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Task } from '../../types';
 
@@ -7,11 +6,23 @@ interface Props {
     onAnswer: (taskId: number, isCorrect: boolean) => void;
 }
 
+// Fisher-Yates shuffle algorithm
+const shuffle = (array: string[]) => {
+    const newArr = [...array];
+    for (let i = newArr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [newArr[i], newArr[j]] = [newArr[j], newArr[i]];
+    }
+    return newArr;
+};
+
 const MatchingTask: React.FC<Props> = ({ task, onAnswer }) => {
     // Flatten pairs for UI
     const pairs = task.pairs || [];
-    const [leftItems] = useState(pairs.map(p => p.left).sort(() => Math.random() - 0.5));
-    const [rightItems] = useState(pairs.map(p => p.right).sort(() => Math.random() - 0.5));
+    
+    // Initialize state with shuffled arrays using Fisher-Yates
+    const [leftItems] = useState(() => shuffle(pairs.map(p => p.left)));
+    const [rightItems] = useState(() => shuffle(pairs.map(p => p.right)));
     
     const [selectedLeft, setSelectedLeft] = useState<string | null>(null);
     const [matched, setMatched] = useState<Set<string>>(new Set());

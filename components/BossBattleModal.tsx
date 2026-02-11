@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import Modal from 'react-modal';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -9,8 +8,6 @@ import { selectIsPending } from '../store/userSlice';
 import { finishCampaign } from '../store/campaignSlice';
 import confetti from 'canvas-confetti';
 import LoadingOverlay from './LoadingOverlay';
-
-Modal.setAppElement('#root');
 
 const BOSS_QUESTIONS = [
   // MATH
@@ -83,8 +80,14 @@ const BossBattleModal: React.FC<BossBattleModalProps> = ({ isOpen, onClose, alli
     const maxPlayerHp = 150;
     const maxBossHp = 400;
     
+    // Refs for logic (prevent stale closures in timeouts)
+    const playerHpRef = useRef(maxPlayerHp);
+    const bossHpRef = useRef(maxBossHp);
+
+    // State for UI rendering
     const [playerHp, setPlayerHp] = useState(maxPlayerHp);
     const [bossHp, setBossHp] = useState(maxBossHp);
+    
     const [turn, setTurn] = useState<'player' | 'boss' | 'win' | 'lose'>('player');
     const [logs, setLogs] = useState<string[]>([]);
     
@@ -112,6 +115,8 @@ const BossBattleModal: React.FC<BossBattleModalProps> = ({ isOpen, onClose, alli
     }, [isOpen]);
 
     const resetBattle = () => {
+        playerHpRef.current = maxPlayerHp;
+        bossHpRef.current = maxBossHp;
         setPlayerHp(maxPlayerHp);
         setBossHp(maxBossHp);
         setTurn('player');
@@ -135,13 +140,20 @@ const BossBattleModal: React.FC<BossBattleModalProps> = ({ isOpen, onClose, alli
         if (idx === currentQ.correct) {
             // Correct
             const dmg = Math.floor(currentQ.dmg * dmgMultiplier);
-            setBossHp(prev => Math.max(0, prev - dmg));
+            
+            // Update Ref Logic
+            const newBossHp = Math.max(0, bossHpRef.current - dmg);
+            bossHpRef.current = newBossHp;
+            
+            // Sync UI
+            setBossHp(newBossHp);
+            
             setBossFlash(true);
             setTimeout(() => setBossFlash(false), 200);
             setLogs(prev => [`Вы нанесли ${dmg} урона знаниями!`, ...prev].slice(0, 4));
             setDmgMultiplier(1); // Reset multiplier
             
-            if (bossHp - dmg <= 0) {
+            if (newBossHp <= 0) {
                 setTurn('win');
                 confetti({ particleCount: 200, spread: 100, origin: { y: 0.6 } });
             } else {
@@ -158,12 +170,19 @@ const BossBattleModal: React.FC<BossBattleModalProps> = ({ isOpen, onClose, alli
 
     const bossTurn = () => {
         const dmg = Math.floor(Math.random() * 20) + 15;
-        setPlayerHp(prev => Math.max(0, prev - dmg));
+        
+        // Update Ref Logic
+        const newPlayerHp = Math.max(0, playerHpRef.current - dmg);
+        playerHpRef.current = newPlayerHp;
+        
+        // Sync UI
+        setPlayerHp(newPlayerHp);
+        
         setPlayerFlash(true);
         setTimeout(() => setPlayerFlash(false), 200);
         setLogs(prev => [`Король Лени атакует! -${dmg} HP`, ...prev].slice(0, 4));
         
-        if (playerHp - dmg <= 0) {
+        if (newPlayerHp <= 0) {
             setTurn('lose');
         } else {
             setTurn('player');
@@ -189,7 +208,9 @@ const BossBattleModal: React.FC<BossBattleModalProps> = ({ isOpen, onClose, alli
             }
         }
         if (ally === 'fairy') {
-            setPlayerHp(prev => Math.min(maxPlayerHp, prev + 30));
+            const newHp = Math.min(maxPlayerHp, playerHpRef.current + 30);
+            playerHpRef.current = newHp;
+            setPlayerHp(newHp);
             setLogs(prev => [`🧚‍♀️ Фея восстановила 30 HP! (Ост: ${allyCharges['fairy'] - 1})`, ...prev].slice(0, 4));
         }
         if (ally === 'warrior') {

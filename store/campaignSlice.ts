@@ -25,6 +25,11 @@ export const advanceCampaignDay = createAsyncThunk(
         const user = state.user.currentUser;
         if (!user || !user.email || !user.campaign.isDayComplete) return;
 
+        // Prevent advancing past the final day (loop exploit fix)
+        if (user.campaign.currentDay >= 14) {
+            return;
+        }
+
         const nextDay = user.campaign.currentDay + 1;
         const newAllies = [...user.campaign.unlockedAllies];
         
