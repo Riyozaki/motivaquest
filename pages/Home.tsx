@@ -1,11 +1,11 @@
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { Swords, ArrowRight, Lock, MapPin, Check, CheckCircle, Clock, Flame, Skull, Zap, Home as HomeIcon, Map as MapIcon, Plus, Minus, Coffee, Star, ShoppingBag, PlusCircle, MinusCircle } from 'lucide-react';
+import { Swords, ArrowRight, Lock, MapPin, Check, CheckCircle, Clock, Flame, Skull, Zap, Home as HomeIcon, Map as MapIcon, Plus, Minus, Coffee, Star, ShoppingBag, PlusCircle, MinusCircle, Award } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useDispatch, useSelector } from 'react-redux';
 import { RootState, AppDispatch } from '../store';
-import { advanceCampaignDay, purchaseItem } from '../store/userSlice';
+import { advanceCampaignDay, purchaseItem, completeQuestAction } from '../store/userSlice';
 import { fetchQuests } from '../store/questsSlice';
 import { CAMPAIGN_DATA } from '../store/questsSlice';
 import QuestModal from '../components/QuestModal';
@@ -15,6 +15,8 @@ import { Quest, QuestRarity } from '../types';
 import { motion, AnimatePresence } from 'framer-motion';
 import LocationEffects from '../components/LocationEffects';
 import confetti from 'canvas-confetti';
+import { toast } from 'react-toastify';
+import { useSoundEffects } from '../hooks/useSoundEffects';
 
 // --- Animation Variants ---
 const containerVar = {
@@ -233,22 +235,66 @@ const CampaignView: React.FC<{
     );
 };
 
+// --- HELPER: SELECT RANDOM DAILY CHALLENGES (12-hour cycle, 06:00 MSK based) ---
+const getDailyRandomQuests = (allQuests: Quest[]): Quest[] => {
+    // 1. Calculate Cycle Seed based on Moscow Time (UTC+3)
+    const now = new Date();
+    // Anchor point: A known 6:00 AM MSK timestamp (e.g., Jan 1, 2024 06:00 MSK)
+    // Using a timestamp relative to Epoch prevents timezone mess. 
+    // 6 AM MSK is 3 AM UTC.
+    const msPer12h = 12 * 60 * 60 * 1000;
+    // Add 3 hours to current UTC time to get "virtual" MSK time for easier day/hour calculation, 
+    // or just rely on absolute math.
+    // Let's use absolute math aligned to a 3 AM UTC anchor.
+    const anchor = new Date('2024-01-01T03:00:00.000Z').getTime(); 
+    const currentMs = now.getTime();
+    const cycleIndex = Math.floor((currentMs - anchor) / msPer12h);
+    
+    // 2. Random Generator seeded by cycleIndex
+    const seededRandom = (seed: number) => {
+        let t = seed += 0x6D2B79F5;
+        t = Math.imul(t ^ (t >>> 15), t | 1);
+        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+
+    // 3. Filter pool (Academic non-habit tasks)
+    const pool = allQuests.filter(q => !q.isHabit && q.type !== 'story');
+    
+    // 4. Shuffle using seeded random
+    const shuffled = [...pool].sort((a, b) => {
+        // Use quest IDs mixed with cycleIndex to make it deterministic per quest per cycle
+        const rA = seededRandom(cycleIndex + a.id);
+        const rB = seededRandom(cycleIndex + b.id);
+        return rA - rB;
+    });
+
+    return shuffled.slice(0, 3);
+};
+
 // --- DASHBOARD VIEW COMPONENT ---
 const DashboardView: React.FC<{
     user: any,
     quests: Quest[],
     shopItems: any[],
-    onQuestSelect: (q: Quest) => void,
+    onQuestSelect: (q: Quest, isBoosted?: boolean) => void,
     dispatch: AppDispatch
 }> = ({ user, quests, shopItems, onQuestSelect, dispatch }) => {
+    const { playCoins } = useSoundEffects();
     
-    // Categorize Quests
-    const habits = quests.filter(q => q.type === 'daily' && (q.category === 'Self' || q.category === 'Sport') && q.rarity === 'Common').slice(0, 5);
-    const dailies = quests.filter(q => q.type === 'daily' && !habits.includes(q)).slice(0, 5);
-    const mainQuests = quests.filter(q => q.type === 'story' || q.category === 'Math' || q.category === 'History' || q.category === 'Science').slice(0, 5);
+    // 1. Habits (Specific: Charge(55), Water(56), Sleep(69))
+    const habitIds = [55, 56, 69]; 
+    const habits = quests.filter(q => habitIds.includes(q.id));
+    
+    // 2. Daily Challenges (Random Boosted) - Seeded by 12h Cycle
+    // Use useMemo to prevent recalculation on every render
+    const dailyChallenges = useMemo(() => getDailyRandomQuests(quests), [quests]);
+
     const rewards = shopItems.filter(item => item.type === 'consumable').slice(0, 4);
 
-    // Filter out completed for cleaner view? Or keep them. Let's keep for dashboard tracking.
+    // Live Mechanics
+    const currentMp = Math.max(0, 10 - (user.dailyCompletionsCount || 0));
+    const isExhausted = currentMp <= 0;
     
     const handleQuickBuy = (item: any) => {
         if (user.coins >= item.cost) {
@@ -257,39 +303,94 @@ const DashboardView: React.FC<{
         }
     };
 
-    const QuestCard = ({ q }: { q: Quest }) => (
-        <div onClick={() => !q.completed && onQuestSelect(q)} className={`group flex items-center p-3 mb-3 bg-slate-800/50 hover:bg-slate-800 border-l-4 ${q.completed ? 'border-emerald-500 opacity-60' : 'border-purple-500'} rounded-r-xl cursor-pointer transition-all`}>
-            <div className={`p-2 rounded-full mr-3 ${q.completed ? 'bg-emerald-900/30 text-emerald-400' : 'bg-slate-700 text-slate-400'}`}>
-                {q.completed ? <Check size={16} /> : <Zap size={16} />}
+    const handleHabitComplete = (q: Quest) => {
+        dispatch(completeQuestAction({ quest: q, multiplier: 1 }));
+        playCoins(); // Sound effect
+        confetti({ 
+            particleCount: 30, 
+            spread: 40, 
+            origin: { y: 0.5 }, 
+            colors: ['#22c55e', '#ffffff'] 
+        });
+        toast.success(`${q.title} выполнено! +${q.coins} монет`);
+    };
+
+    const DailyChallengeCard = ({ q }: { q: Quest }) => (
+        <div 
+            onClick={() => !q.completed && !isExhausted && onQuestSelect(q, true)} 
+            className={`group relative flex items-center p-4 mb-3 bg-gradient-to-r from-purple-900/40 to-slate-900/60 hover:from-purple-900/60 border-l-4 ${q.completed ? 'border-emerald-500 opacity-60' : 'border-amber-400'} rounded-r-xl transition-all
+            ${!q.completed && !isExhausted ? 'cursor-pointer hover:translate-x-1' : 'cursor-not-allowed opacity-50'}
+            `}
+        >
+            {!q.completed && (
+                <div className="absolute top-0 right-0 bg-amber-500 text-slate-900 text-[10px] font-black px-2 py-0.5 rounded-bl-lg flex items-center gap-1">
+                    <Zap size={10} fill="currentColor" /> x1.5 BOOST
+                </div>
+            )}
+            
+            <div className={`p-3 rounded-full mr-4 ${q.completed ? 'bg-emerald-900/30 text-emerald-400' : 'bg-purple-500/20 text-purple-300'}`}>
+                {q.completed ? <Check size={20} /> : <Swords size={20} />}
             </div>
             <div className="flex-1">
-                <h4 className={`text-sm font-bold ${q.completed ? 'text-slate-500 line-through' : 'text-slate-200'}`}>{q.title}</h4>
-                <div className="flex items-center text-[10px] text-slate-500 mt-1">
-                    <span className="text-amber-500 font-bold mr-2">{q.coins} 💰</span>
-                    <span className="text-purple-400 font-bold">{q.xp} XP</span>
+                <h4 className={`text-sm font-bold ${q.completed ? 'text-slate-500 line-through' : 'text-white'}`}>{q.title}</h4>
+                <div className="flex items-center text-xs text-slate-400 mt-1">
+                    <span className="text-amber-400 font-bold mr-3 flex items-center gap-1">
+                        <PlusCircle size={10} /> {Math.floor(q.coins * 1.5)} 💰
+                    </span>
+                    <span className="text-purple-400 font-bold flex items-center gap-1">
+                        <PlusCircle size={10} /> {Math.floor(q.xp * 1.5)} XP
+                    </span>
                 </div>
             </div>
         </div>
     );
 
-    const HabitCard = ({ q }: { q: Quest }) => (
-        <div className="flex items-center justify-between p-4 mb-3 bg-slate-800/50 rounded-xl border border-slate-700/50 hover:border-slate-600 transition-all">
-            <div className="flex items-center gap-3">
-                <div className="bg-blue-500/10 p-2 rounded-lg text-blue-400">
-                    <Flame size={18} />
+    const HabitCard = ({ q }: { q: Quest }) => {
+        const streak = user.habitStreaks?.[q.id] || 0;
+        const progress = Math.min(100, (streak / 7) * 100);
+
+        return (
+            <div className={`flex flex-col p-3 mb-2 bg-slate-800/40 rounded-xl border border-slate-700/50 transition-all ${q.completed ? 'opacity-70 border-emerald-500/30' : 'hover:border-slate-500 hover:bg-slate-800/60'}`}>
+                <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-3">
+                        <div className={`p-2 rounded-lg ${q.completed ? 'text-emerald-500 bg-emerald-500/10' : 'text-blue-400 bg-blue-500/10'}`}>
+                            {q.completed ? <CheckCircle size={18} /> : <Flame size={18} />}
+                        </div>
+                        <div>
+                            <h4 className={`text-sm font-bold ${q.completed ? 'text-slate-500 line-through' : 'text-slate-200'}`}>{q.title}</h4>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-1">
+                        {q.completed ? (
+                            <div className="px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 text-xs font-bold flex items-center gap-1">
+                                <Check size={14} /> Готово
+                            </div>
+                        ) : (
+                            <button 
+                                disabled={isExhausted}
+                                onClick={() => handleHabitComplete(q)} 
+                                className={`p-2 rounded-lg transition-all bg-slate-700 text-slate-300 hover:text-white hover:bg-emerald-600 hover:scale-105 active:scale-95 shadow-lg ${isExhausted ? 'cursor-not-allowed opacity-50' : ''}`}
+                                title="Отметить выполненным"
+                            >
+                                <Plus size={18} />
+                            </button>
+                        )}
+                    </div>
                 </div>
-                <div>
-                    <h4 className="text-sm font-bold text-slate-200">{q.title}</h4>
-                    <p className="text-[10px] text-slate-500">0 / 1</p>
+                
+                {/* Streak Bar */}
+                <div className="w-full bg-slate-900 rounded-full h-1.5 mt-1 relative overflow-hidden">
+                    <div className="absolute top-0 left-0 h-full bg-orange-500 transition-all duration-500" style={{ width: `${progress}%` }}></div>
+                </div>
+                <div className="flex justify-between items-center mt-1">
+                    <span className="text-[10px] text-slate-500 font-bold flex items-center gap-1">
+                        <Flame size={10} className="text-orange-500" /> {streak} дн. подряд
+                    </span>
+                    <span className="text-[10px] text-slate-600 font-mono">Цель: 7</span>
                 </div>
             </div>
-            <div className="flex items-center gap-1">
-                <button onClick={() => onQuestSelect(q)} className={`p-2 rounded-lg transition-colors ${q.completed ? 'bg-emerald-500 text-white' : 'bg-slate-700 text-slate-400 hover:text-white'}`}>
-                    <Plus size={16} />
-                </button>
-            </div>
-        </div>
-    );
+        );
+    };
 
     return (
         <div className="space-y-8">
@@ -304,7 +405,7 @@ const DashboardView: React.FC<{
                         <div className="flex justify-between items-end">
                             <div>
                                 <h2 className="text-2xl font-bold text-white">{user.username}</h2>
-                                <p className="text-sm text-slate-400">Герой 5 класса</p>
+                                <p className="text-sm text-slate-400">Герой {user.grade || 5} класса</p>
                             </div>
                             <div className="text-right">
                                 <span className="text-2xl font-black text-amber-400">{user.coins} 💰</span>
@@ -316,10 +417,10 @@ const DashboardView: React.FC<{
                             <div>
                                 <div className="flex justify-between text-xs font-bold text-slate-400 mb-1">
                                     <span>HP (Здоровье)</span>
-                                    <span>50 / 50</span>
+                                    <span>{user.currentHp || 50} / 50</span>
                                 </div>
-                                <div className="h-3 bg-slate-800 rounded-full overflow-hidden">
-                                    <div className="h-full bg-red-500 w-full"></div>
+                                <div className="h-3 bg-slate-800 rounded-full overflow-hidden relative">
+                                    <div className="h-full bg-red-500 transition-all duration-500" style={{ width: `${((user.currentHp || 50) / 50) * 100}%` }}></div>
                                 </div>
                             </div>
                             <div>
@@ -334,11 +435,11 @@ const DashboardView: React.FC<{
                         </div>
                         <div>
                             <div className="flex justify-between text-xs font-bold text-slate-400 mb-1">
-                                <span>MP (Энергия)</span>
-                                <span>30 / 30</span>
+                                <span>MP (Энергия Дня)</span>
+                                <span>{currentMp} / 10</span>
                             </div>
                             <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
-                                <div className="h-full bg-blue-400 w-full"></div>
+                                <div className={`h-full w-full transition-all duration-500 ${isExhausted ? 'bg-slate-600' : 'bg-blue-400'}`} style={{ width: `${(currentMp / 10) * 100}%` }}></div>
                             </div>
                         </div>
                     </div>
@@ -349,55 +450,49 @@ const DashboardView: React.FC<{
             <Survey />
 
             {/* Columns Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                 
-                {/* 1. Habits */}
-                <div className="glass-panel p-4 rounded-2xl min-h-[400px]">
-                    <h3 className="text-amber-400 font-bold uppercase tracking-widest mb-4 flex items-center gap-2">
-                        <Zap size={16} /> Привычки
-                    </h3>
-                    <div className="space-y-2">
-                        {habits.map(q => <HabitCard key={q.id} q={q} />)}
-                        {habits.length === 0 && <div className="text-slate-500 text-xs text-center py-4">Нет привычек</div>}
-                    </div>
-                </div>
-
-                {/* 2. Dailies */}
-                <div className="glass-panel p-4 rounded-2xl min-h-[400px]">
+                {/* 1. Habits (Routine) */}
+                <div className="glass-panel p-5 rounded-2xl min-h-[400px] border border-slate-700/50">
                     <h3 className="text-blue-400 font-bold uppercase tracking-widest mb-4 flex items-center gap-2">
-                        <Clock size={16} /> Ежедневные
+                        <CheckCircle size={18} /> Привычки
                     </h3>
-                    <div className="space-y-2">
-                        {dailies.map(q => <QuestCard key={q.id} q={q} />)}
+                    <p className="text-xs text-slate-500 mb-4">Твоя дисциплина — твоя сила.</p>
+                    <div className="space-y-1">
+                        {habits.map(q => <HabitCard key={q.id} q={q} />)}
+                        {habits.length === 0 && <div className="text-slate-500 text-xs text-center py-4">Нет активных привычек</div>}
                     </div>
                 </div>
 
-                {/* 3. Main Quests */}
-                <div className="glass-panel p-4 rounded-2xl min-h-[400px]">
-                    <h3 className="text-purple-400 font-bold uppercase tracking-widest mb-4 flex items-center gap-2">
-                        <Swords size={16} /> Задания
+                {/* 2. Daily Challenges (Random Boosted) */}
+                <div className={`glass-panel p-5 rounded-2xl min-h-[400px] border border-purple-500/30 bg-purple-900/10 ${isExhausted ? 'opacity-70' : ''}`}>
+                    <h3 className="text-purple-400 font-bold uppercase tracking-widest mb-1 flex items-center gap-2">
+                        <Award size={18} /> Испытания Дня
                     </h3>
+                    <p className="text-xs text-purple-300/60 mb-4">Обновление: 06:00 и 18:00 МСК. Бонус x1.5!</p>
+                    
                     <div className="space-y-2">
-                        {mainQuests.map(q => <QuestCard key={q.id} q={q} />)}
+                        {dailyChallenges.map(q => <DailyChallengeCard key={q.id} q={q} />)}
+                        {isExhausted && <div className="text-red-400 text-xs text-center font-bold mt-4">Энергия иссякла (0 MP)</div>}
                     </div>
                 </div>
 
-                {/* 4. Rewards */}
-                <div className="glass-panel p-4 rounded-2xl min-h-[400px]">
+                {/* 3. Rewards */}
+                <div className="glass-panel p-5 rounded-2xl min-h-[400px] border border-slate-700/50">
                     <h3 className="text-emerald-400 font-bold uppercase tracking-widest mb-4 flex items-center gap-2">
-                        <ShoppingBag size={16} /> Награды
+                        <ShoppingBag size={18} /> Награды
                     </h3>
                     <div className="space-y-3">
                         {rewards.map(item => (
-                            <div key={item.id} className="bg-slate-800/80 p-4 rounded-xl border border-slate-700 text-center">
-                                <div className="mb-2 flex justify-center text-amber-500">
+                            <div key={item.id} className="bg-slate-800/80 p-4 rounded-xl border border-slate-700 text-center flex flex-col items-center">
+                                <div className="mb-2 text-amber-500">
                                     {item.icon === 'Coffee' ? <Coffee /> : <Star />}
                                 </div>
                                 <h4 className="text-sm font-bold text-white mb-1">{item.name}</h4>
                                 <button 
                                     onClick={() => handleQuickBuy(item)}
                                     disabled={user.coins < item.cost}
-                                    className={`text-xs font-bold px-3 py-1 rounded-lg border ${
+                                    className={`text-xs font-bold px-3 py-1.5 rounded-lg border w-full mt-1 ${
                                         user.coins >= item.cost 
                                         ? 'border-amber-500 text-amber-400 hover:bg-amber-900/30' 
                                         : 'border-slate-600 text-slate-500 cursor-not-allowed'
@@ -422,6 +517,7 @@ const StoryDashboard: React.FC = () => {
   const shopItems = useSelector((state: RootState) => state.rewards.shopItems);
   
   const [selectedQuest, setSelectedQuest] = useState<Quest | null>(null);
+  const [questMultiplier, setQuestMultiplier] = useState(1);
   const [isBossModalOpen, setIsBossModalOpen] = useState(false);
   const [viewMode, setViewMode] = useState<'dashboard' | 'campaign'>('dashboard');
 
@@ -438,6 +534,11 @@ const StoryDashboard: React.FC = () => {
   const storyQuests = quests.filter(q => currentStory.questIds.includes(q.id));
   const completedCount = storyQuests.filter(q => q.completed).length;
   const totalCount = storyQuests.length;
+
+  const handleQuestOpen = (quest: Quest, isBoosted = false) => {
+      setQuestMultiplier(isBoosted ? 1.5 : 1);
+      setSelectedQuest(quest);
+  };
 
   return (
     <div className="relative pb-20">
@@ -467,7 +568,7 @@ const StoryDashboard: React.FC = () => {
                     user={user} 
                     quests={quests} 
                     shopItems={shopItems} 
-                    onQuestSelect={setSelectedQuest}
+                    onQuestSelect={handleQuestOpen}
                     dispatch={dispatch}
                   />
               </motion.div>
@@ -479,7 +580,7 @@ const StoryDashboard: React.FC = () => {
                     storyQuests={storyQuests}
                     completedCount={completedCount}
                     totalCount={totalCount}
-                    onQuestSelect={setSelectedQuest}
+                    onQuestSelect={(q) => handleQuestOpen(q)}
                     onBossOpen={() => setIsBossModalOpen(true)}
                     onAdvanceDay={() => dispatch(advanceCampaignDay())}
                     isDayComplete={user.campaign?.isDayComplete}
@@ -491,7 +592,12 @@ const StoryDashboard: React.FC = () => {
 
       {/* Modals */}
       {selectedQuest && (
-        <QuestModal quest={selectedQuest} isOpen={!!selectedQuest} onClose={() => setSelectedQuest(null)} />
+        <QuestModal 
+            quest={selectedQuest} 
+            isOpen={!!selectedQuest} 
+            onClose={() => setSelectedQuest(null)} 
+            multiplier={questMultiplier} // Pass multiplier to modal
+        />
       )}
       <BossBattleModal 
         isOpen={isBossModalOpen} 

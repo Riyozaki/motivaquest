@@ -1,14 +1,15 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Modal from 'react-modal';
 import { Quest, Task } from '../types';
 import { X, Coins, Star, Trophy, Volume2, StopCircle, Play, Clock, Zap } from 'lucide-react';
 import { useDispatch, useSelector } from 'react-redux';
 import { completeQuestAction, startQuestAction } from '../store/userSlice';
-import { markQuestCompleted } from '../store/questsSlice';
+import { markQuestCompleted, fetchQuests } from '../store/questsSlice';
 import { toast } from 'react-toastify';
 import { motion, AnimatePresence } from 'framer-motion';
 import { RootState, AppDispatch } from '../store';
+import { useSoundEffects } from '../hooks/useSoundEffects';
 
 // Import new task components
 import QuizTask from './tasks/QuizTask';
@@ -25,6 +26,7 @@ interface QuestModalProps {
   quest: Quest | null;
   isOpen: boolean;
   onClose: () => void;
+  multiplier?: number; // New prop for reward multiplier
 }
 
 interface TaskResult {
@@ -32,9 +34,10 @@ interface TaskResult {
     isPartial: boolean;
 }
 
-const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose }) => {
+const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose, multiplier = 1 }) => {
   const dispatch = useDispatch<AppDispatch>();
   const user = useSelector((state: RootState) => state.user.currentUser);
+  const { playQuestComplete } = useSoundEffects();
   
   // Store results for each task ID
   const [taskResults, setTaskResults] = useState<{ [key: number]: TaskResult }>({});
@@ -108,12 +111,13 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose }) => {
       return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
 
-  const handleTaskAnswer = (taskId: number, isCorrect: boolean, isPartial: boolean = false) => {
+  // Wrapped in useCallback to prevent infinite re-renders in child components (ChecklistTask)
+  const handleTaskAnswer = useCallback((taskId: number, isCorrect: boolean, isPartial: boolean = false) => {
       setTaskResults(prev => ({
           ...prev,
           [taskId]: { isCorrect, isPartial }
       }));
-  };
+  }, []);
 
   const renderTask = (task: Task) => {
       // If task is answered, maybe show a "Done" state overlay or disable it?
@@ -131,7 +135,7 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose }) => {
       }
   };
 
-  const handleCompleteFlow = () => {
+  const handleCompleteFlow = async () => {
       if (timeLeft > 0 && !isAdmin) {
           toast.warning(`Не так быстро! Подожди ещё ${formatTime(timeLeft)}.`);
           return;
@@ -141,9 +145,8 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose }) => {
       const allTasks = quest.tasks;
       const completedCount = Object.keys(taskResults).length;
       
-      // Some tasks like Checklist might not fire "onAnswer" until interacted with.
-      // We assume user must interact with all tasks.
-      if (completedCount < allTasks.length) {
+      // FIX: Admins bypass this check
+      if (completedCount < allTasks.length && !isAdmin) {
           toast.info("Выполни все части задания!");
           return;
       }
@@ -155,20 +158,32 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose }) => {
           else if (res.isPartial) totalScore += 0.5;
       });
 
-      const finalMultiplier = totalScore / allTasks.length;
+      let finalMultiplier = allTasks.length > 0 ? totalScore / allTasks.length : 1;
 
-      if (finalMultiplier === 0) {
+      // FIX: Admin Force Complete grants full reward if tasks were skipped
+      if (isAdmin && completedCount < allTasks.length) {
+          finalMultiplier = 1.0;
+      }
+
+      if (finalMultiplier === 0 && !isAdmin) {
           toast.error("Ты провалил все задания. Попробуй снова!");
           // Optional: allow retry without closing?
           return;
       }
 
+      // APPLY GLOBAL MULTIPLIER (e.g. from Daily Challenge 1.5x)
+      finalMultiplier = finalMultiplier * multiplier;
+
+      playQuestComplete(); // Audio
       setCompleted(true);
-      dispatch(markQuestCompleted(quest.id));
-      dispatch(completeQuestAction({ quest, multiplier: finalMultiplier })); 
+      await dispatch(markQuestCompleted(quest.id));
+      await dispatch(completeQuestAction({ quest, multiplier: finalMultiplier })); 
       
-      if (finalMultiplier === 1.0) {
-          toast.success("Идеальное прохождение! +20% Бонус!");
+      // Auto-refetch quests to update dashboard immediately
+      dispatch(fetchQuests());
+      
+      if (finalMultiplier >= 1.0) {
+          toast.success(`Успех! Бонус: x${multiplier}`);
       }
   };
 
@@ -216,6 +231,11 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose }) => {
              <div className="flex flex-wrap items-center gap-2 mb-2 pr-8">
                  <span className="bg-purple-500/20 text-purple-300 border border-purple-500/30 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest">{quest.category}</span>
                  <span className="bg-slate-700 text-slate-300 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest">{quest.rarity}</span>
+                 {multiplier > 1 && (
+                     <span className="bg-amber-500/20 text-amber-400 border border-amber-500/30 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest flex items-center">
+                         <Zap size={10} className="mr-1" /> x{multiplier} BOOST
+                     </span>
+                 )}
                  {isStarted && timeLeft > 0 && (
                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest flex items-center ${isAdmin ? 'bg-red-900/40 text-red-400 border border-red-500/30' : 'bg-amber-900/40 text-amber-400 border border-amber-500/30 animate-pulse'}`}>
                          <Clock size={10} className="mr-1"/> {isAdmin ? 'Timer Bypass' : formatTime(timeLeft)}
@@ -246,11 +266,11 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose }) => {
                   <div className="flex justify-center gap-4 md:gap-6 mb-8">
                       <div className="bg-slate-800/80 px-4 md:px-6 py-3 rounded-xl border border-amber-500/30 flex items-center shadow-lg">
                           <Coins className="text-amber-400 mr-2 h-5 w-5 md:h-6 md:w-6" />
-                          <span className="font-bold text-lg md:text-xl text-white">+{quest.coins}</span>
+                          <span className="font-bold text-lg md:text-xl text-white">+{Math.floor(quest.coins * multiplier)}</span>
                       </div>
                       <div className="bg-slate-800/80 px-4 md:px-6 py-3 rounded-xl border border-purple-500/30 flex items-center shadow-lg">
                           <Star className="text-purple-400 mr-2 h-5 w-5 md:h-6 md:w-6" />
-                          <span className="font-bold text-lg md:text-xl text-white">+{quest.xp}</span>
+                          <span className="font-bold text-lg md:text-xl text-white">+{Math.floor(quest.xp * multiplier)}</span>
                       </div>
                   </div>
                   <button onClick={onClose} className="w-full py-3 rounded-xl border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors font-bold">Закрыть Свиток</button>
@@ -284,8 +304,8 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose }) => {
         {!(completed || quest.completed) && isStarted && (
             <div className="p-4 md:p-6 bg-slate-900 border-t border-slate-800 flex flex-col md:flex-row justify-between items-center gap-4 shrink-0">
                 <div className="flex gap-4 text-sm font-bold w-full md:w-auto justify-center md:justify-start">
-                    <span className="flex items-center text-amber-400"><Coins className="h-4 w-4 mr-1" /> {quest.coins}</span>
-                    <span className="flex items-center text-purple-400"><Star className="h-4 w-4 mr-1" /> {quest.xp}</span>
+                    <span className="flex items-center text-amber-400"><Coins className="h-4 w-4 mr-1" /> {Math.floor(quest.coins * multiplier)}</span>
+                    <span className="flex items-center text-purple-400"><Star className="h-4 w-4 mr-1" /> {Math.floor(quest.xp * multiplier)}</span>
                 </div>
                 <button 
                    onClick={handleCompleteFlow} 

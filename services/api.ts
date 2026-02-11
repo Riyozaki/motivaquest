@@ -6,11 +6,74 @@ const API_URL = 'https://script.google.com/macros/s/AKfycbyibXkrpjTcaGb23jx_WosI
 
 // Increased timeout for Google Sheets latency
 const TIMEOUT_MS = 20000;
+const OFFLINE_QUEUE_KEY = 'motiva_offline_queue';
+
+interface OfflineRequest {
+    id: string;
+    action: string;
+    data: any;
+    timestamp: number;
+}
 
 // Helper: Sleep function
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-const request = async (action: string, data: any = {}, method: 'POST' | 'GET' = 'POST', retryCount = 0): Promise<any> => {
+const saveToQueue = (action: string, data: any) => {
+    try {
+        const queueStr = localStorage.getItem(OFFLINE_QUEUE_KEY);
+        const queue: OfflineRequest[] = queueStr ? JSON.parse(queueStr) : [];
+        
+        queue.push({
+            id: Date.now().toString() + Math.random().toString(),
+            action,
+            data,
+            timestamp: Date.now()
+        });
+        
+        localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
+        console.log(`[Offline] Request queued: ${action}`);
+    } catch (e) {
+        console.error("Failed to save offline request", e);
+    }
+};
+
+const flushOfflineQueue = async () => {
+    try {
+        const queueStr = localStorage.getItem(OFFLINE_QUEUE_KEY);
+        if (!queueStr) return;
+        
+        let queue: OfflineRequest[] = JSON.parse(queueStr);
+        if (queue.length === 0) return;
+
+        console.log(`[Offline] Flushing ${queue.length} requests...`);
+        
+        const newQueue: OfflineRequest[] = [];
+        let successCount = 0;
+
+        for (const req of queue) {
+            try {
+                await request(req.action, req.data, 'POST', 0, true); // true = skipQueue to avoid recursive loop
+                successCount++;
+            } catch (e) {
+                console.warn(`[Offline] Retry failed for ${req.action}`, e);
+                newQueue.push(req); // Keep in queue if still failing
+            }
+        }
+
+        if (newQueue.length > 0) {
+            localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(newQueue));
+        } else {
+            localStorage.removeItem(OFFLINE_QUEUE_KEY);
+        }
+        
+        if (successCount > 0) console.log(`[Offline] Synced ${successCount} requests.`);
+
+    } catch (e) {
+        console.error("Error flushing offline queue", e);
+    }
+};
+
+const request = async (action: string, data: any = {}, method: 'POST' | 'GET' = 'POST', retryCount = 0, skipQueue = false): Promise<any> => {
     const controller = new AbortController();
     const id = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
@@ -49,19 +112,32 @@ const request = async (action: string, data: any = {}, method: 'POST' | 'GET' = 
         // ERROR HANDLING & RETRY LOGIC
         if (result.error) {
             // If user not found, and we haven't retried too many times, wait and try again.
-            // This fixes the race condition where registration happens but the sheet isn't indexed yet.
             if (result.error.includes('User not found') && retryCount < 3) {
                 console.warn(`[${action}] User not found, retrying in 2s... (Attempt ${retryCount + 1})`);
                 await sleep(2000);
-                return request(action, data, method, retryCount + 1);
+                return request(action, data, method, retryCount + 1, skipQueue);
             }
             
             throw new Error(result.error);
         }
 
+        // On Success: Try to flush pending offline requests
+        if (!skipQueue) {
+            // Don't await this, let it run in background
+            flushOfflineQueue(); 
+        }
+
         return result;
     } catch (error: any) {
         clearTimeout(id);
+        
+        const isNetworkError = error.name === 'AbortError' || error.message.includes('Failed to fetch') || error.message.includes('NetworkError');
+        
+        if (isNetworkError && !skipQueue && method === 'POST') {
+             saveToQueue(action, data);
+             // Throw specific error code for UI to handle gracefully
+             throw new Error("OFFLINE_SAVED");
+        }
         
         if (error.name === 'AbortError') {
              throw new Error("Сервер долго отвечает. Google Таблицы могут спать, попробуйте еще раз.");
@@ -75,8 +151,6 @@ const request = async (action: string, data: any = {}, method: 'POST' | 'GET' = 
 export const api = {
     register: async (email: string, password: string, username: string) => {
         const res = await request('register', { email, password, username });
-        // Explicit delay after registration to allow Google Sheets to propagate the new row
-        // before the app tries to read/update it immediately after login.
         await sleep(3000); 
         return res;
     },
@@ -97,6 +171,7 @@ export const api = {
         if (progress.currentXp !== undefined) sheetData.xp = progress.currentXp;
         if (progress.level !== undefined) sheetData.level = progress.level;
         if (progress.avatar !== undefined) sheetData.visitorAvatar = progress.avatar;
+        if (progress.currentHp !== undefined) sheetData.hp = progress.currentHp;
         
         if (Object.keys(sheetData).length > 0) {
             return await request('updateProgress', { email, progress: sheetData });
@@ -104,12 +179,11 @@ export const api = {
     },
 
     // Updates 'info' sheet
-    // Columns: email, dailyReport, mood, cheating, currentLevel, unlockedAllies, questsTaken, dailyStreak, streakTakenToday, purchases, achievements, interfaceColor
     updateInfo: async (email: string, infoData: any) => {
         const allowedKeys = [
             'dailyReport', 'mood', 'cheating', 'currentLevel', 'unlockedAllies', 
             'questsTaken', 'dailyStreak', 'streakTakenToday', 'purchases', 
-            'achievements', 'interfaceColor'
+            'achievements', 'interfaceColor', 'heroClass', 'lastLoginDate'
         ];
         
         const filteredData: any = {};

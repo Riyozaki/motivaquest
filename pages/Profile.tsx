@@ -1,9 +1,10 @@
+
 import React, { useState, useRef, useMemo } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { Award, Zap, Coins, CheckCircle, Sword, Edit2, Shield, Heart, Target, Sparkles, Map, Package, Save, TrendingUp, Calendar, Palette, History, Share2, Download, Upload, User } from 'lucide-react';
+import { Award, Zap, Coins, CheckCircle, Sword, Edit2, Shield, Heart, Target, Sparkles, Map, Package, Save, TrendingUp, Calendar, Palette, History, Share2, Download, Upload, User, Crown, AlertCircle } from 'lucide-react';
 import { RootState, AppDispatch } from '../store';
-import { updateUserProfile, equipSkin, importSaveData, setThemeColor } from '../store/userSlice';
-import { motion } from 'framer-motion';
+import { updateUserProfile, equipSkin, importSaveData, setThemeColor, changeHeroClass } from '../store/userSlice';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -18,7 +19,7 @@ import {
   ChartData
 } from 'chart.js';
 import { Bar, Line } from 'react-chartjs-2';
-import { ThemeColor } from '../types';
+import { ThemeColor, HeroClass } from '../types';
 import { toast } from 'react-toastify';
 
 ChartJS.register(
@@ -40,6 +41,13 @@ const AVATAR_OPTIONS = [
   { id: 'explorer', icon: Map, label: 'Искатель', color: 'from-blue-500 to-cyan-600' },
 ];
 
+const HERO_CLASSES: { id: HeroClass, name: string, bonus: string, icon: any, color: string }[] = [
+    { id: 'warrior', name: 'Воин', bonus: '+10% XP за Спорт', icon: Sword, color: 'text-red-400' },
+    { id: 'mage', name: 'Маг', bonus: '+10% XP за Науки (Math/Sci)', icon: Sparkles, color: 'text-purple-400' },
+    { id: 'ranger', name: 'Следопыт', bonus: '+10% XP за Социум/Эко', icon: Map, color: 'text-emerald-400' },
+    { id: 'healer', name: 'Целитель', bonus: '+10% Монет за Саморазвитие', icon: Heart, color: 'text-pink-400' },
+];
+
 const THEMES: { id: ThemeColor, color: string, label: string }[] = [
     { id: 'purple', color: '#8b5cf6', label: 'Мистик' },
     { id: 'blue', color: '#3b82f6', label: 'Небо' },
@@ -58,6 +66,7 @@ const Profile: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'stats' | 'inventory' | 'achievements' | 'data'>('stats');
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState(user?.username || '');
+  const [showClassSelection, setShowClassSelection] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // --- Chart Data Calculation ---
@@ -171,6 +180,15 @@ const Profile: React.FC = () => {
 
   const handleEquip = (skinValue: string) => dispatch(equipSkin(skinValue));
 
+  const handleClassSelect = async (cls: HeroClass) => {
+      try {
+          await dispatch(changeHeroClass(cls)).unwrap();
+          setShowClassSelection(false);
+      } catch (e) {
+          // Toast handled in slice
+      }
+  };
+
   const handleExportData = () => {
     const dataStr = JSON.stringify(user, null, 2);
     const blob = new Blob([dataStr], { type: 'application/json' });
@@ -202,6 +220,7 @@ const Profile: React.FC = () => {
 
   const CurrentAvatarData = AVATAR_OPTIONS.find(a => a.id === user.avatar) || AVATAR_OPTIONS[0];
   const CurrentIcon = CurrentAvatarData.icon;
+  const currentHeroClass = HERO_CLASSES.find(c => c.id === user.heroClass);
 
   const mySkins = shopItems.filter(item => item.type === 'skin' && user.inventory?.includes(item.id));
 
@@ -241,7 +260,7 @@ const Profile: React.FC = () => {
                     <h1 className="text-3xl md:text-4xl font-bold text-white mb-2 rpg-font break-all">{user.username}</h1>
                 )}
                 
-                <div className="flex items-center justify-center md:justify-start gap-4 mb-6">
+                <div className="flex flex-wrap items-center justify-center md:justify-start gap-3 mb-6">
                     <span className="px-3 py-1 bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-lg text-xs font-bold uppercase tracking-widest flex items-center">
                         <Shield size={12} className="mr-1" /> Уровень {user.level}
                     </span>
@@ -250,7 +269,51 @@ const Profile: React.FC = () => {
                             <Zap size={12} className="mr-1" /> Стрик {user.streakDays}
                         </span>
                     )}
+                    {/* Class Badge */}
+                    <button 
+                        onClick={() => setShowClassSelection(!showClassSelection)}
+                        className={`px-3 py-1 rounded-lg text-xs font-bold uppercase tracking-widest flex items-center border transition-all hover:scale-105 ${currentHeroClass ? 'bg-purple-900/30 text-purple-300 border-purple-500/30' : 'bg-slate-800 text-slate-400 border-slate-600'}`}
+                    >
+                        <Crown size={12} className="mr-1" /> {currentHeroClass ? currentHeroClass.name : 'Выбрать Класс'}
+                    </button>
                 </div>
+
+                {/* Class Selection Area */}
+                <AnimatePresence>
+                    {showClassSelection && (
+                        <motion.div 
+                            initial={{ height: 0, opacity: 0 }} 
+                            animate={{ height: 'auto', opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            className="w-full mb-6 overflow-hidden"
+                        >
+                            <div className="bg-slate-900/80 border border-slate-700 rounded-xl p-4">
+                                <h4 className="text-white font-bold mb-3 flex justify-between">
+                                    Выберите специализацию
+                                    {user.heroClass && <span className="text-xs text-amber-400 font-normal">Смена стоит 500 монет</span>}
+                                </h4>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    {HERO_CLASSES.map(cls => (
+                                        <button
+                                            key={cls.id}
+                                            onClick={() => handleClassSelect(cls.id)}
+                                            className={`p-3 rounded-lg border text-left flex items-center gap-3 transition-all ${user.heroClass === cls.id ? 'bg-purple-900/20 border-purple-500 ring-1 ring-purple-500' : 'bg-slate-800 border-slate-700 hover:bg-slate-700'}`}
+                                        >
+                                            <div className={`p-2 rounded-full bg-slate-900 ${cls.color}`}>
+                                                <cls.icon size={20} />
+                                            </div>
+                                            <div>
+                                                <div className="font-bold text-slate-200 text-sm">{cls.name}</div>
+                                                <div className="text-[10px] text-slate-400">{cls.bonus}</div>
+                                            </div>
+                                            {user.heroClass === cls.id && <CheckCircle className="ml-auto text-purple-500" size={16} />}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
 
                 {/* Stat Grid */}
                 <div className="grid grid-cols-2 gap-4 w-full max-w-md">

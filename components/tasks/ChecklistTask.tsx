@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Task } from '../../types';
 import { CheckSquare, Square } from 'lucide-react';
 
@@ -11,6 +11,12 @@ interface Props {
 const ChecklistTask: React.FC<Props> = ({ task, onAnswer }) => {
     const [checked, setChecked] = useState<string[]>([]);
     
+    // Store latest onAnswer callback in ref to avoid effect dependency loop
+    const onAnswerRef = useRef(onAnswer);
+    useEffect(() => {
+        onAnswerRef.current = onAnswer;
+    }, [onAnswer]);
+
     const items = task.checklistItems || [];
     const total = items.length;
 
@@ -28,13 +34,13 @@ const ChecklistTask: React.FC<Props> = ({ task, onAnswer }) => {
         const allChecked = checked.length === total;
         const someChecked = checked.length > 0;
         
-        // If all checked -> Correct. If some -> Partial. If none -> nothing yet.
+        // Use ref to call function without triggering re-run when function identity changes
         if (allChecked) {
-            onAnswer(task.id, true);
+            onAnswerRef.current(task.id, true);
         } else if (someChecked) {
-            onAnswer(task.id, false, true); // Partial
+            onAnswerRef.current(task.id, false, true); // Partial
         }
-    }, [checked, total, task.id, onAnswer]);
+    }, [checked, total, task.id]); // Removed onAnswer from dependencies
 
     return (
         <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700">

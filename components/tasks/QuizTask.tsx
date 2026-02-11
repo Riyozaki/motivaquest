@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { Task } from '../../types';
 import { motion } from 'framer-motion';
 import { Check, X } from 'lucide-react';
+import { useSoundEffects } from '../../hooks/useSoundEffects';
 
 interface Props {
     task: Task;
@@ -12,12 +13,15 @@ interface Props {
 const QuizTask: React.FC<Props> = ({ task, onAnswer }) => {
     const [selected, setSelected] = useState<number | null>(null);
     const [isSubmitted, setIsSubmitted] = useState(false);
+    const { playCorrect, playWrong } = useSoundEffects();
 
     const handleSelect = (idx: number) => {
         if (isSubmitted) return;
         setSelected(idx);
         setIsSubmitted(true);
         const correct = idx === task.correctIndex;
+        if (correct) playCorrect();
+        else playWrong();
         onAnswer(task.id, correct);
     };
 

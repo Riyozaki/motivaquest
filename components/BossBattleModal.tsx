@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Modal from 'react-modal';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Skull, Crown, AlertCircle, Heart, Zap, Sword } from 'lucide-react';
+import { Skull, Crown, AlertCircle, Heart, Zap, Sword, Battery } from 'lucide-react';
 import { useDispatch } from 'react-redux';
 import { AppDispatch } from '../store';
 import { finishCampaign } from '../store/userSlice';
@@ -85,6 +85,13 @@ const BossBattleModal: React.FC<BossBattleModalProps> = ({ isOpen, onClose, alli
     const [turn, setTurn] = useState<'player' | 'boss' | 'win' | 'lose'>('player');
     const [logs, setLogs] = useState<string[]>([]);
     
+    // Ally Charges: Wizard (2), Fairy (1), Warrior (1)
+    const [allyCharges, setAllyCharges] = useState<{ [key: string]: number }>({
+        wizard: 2,
+        fairy: 1,
+        warrior: 1
+    });
+    
     // Question State
     const [currentQ, setCurrentQ] = useState<Question | null>(null);
     const [disabledOpts, setDisabledOpts] = useState<number[]>([]);
@@ -110,6 +117,7 @@ const BossBattleModal: React.FC<BossBattleModalProps> = ({ isOpen, onClose, alli
         setDmgMultiplier(1);
         setBossFlash(false);
         setPlayerFlash(false);
+        setAllyCharges({ wizard: 2, fairy: 1, warrior: 1 });
     };
 
     const nextQuestion = () => {
@@ -163,6 +171,10 @@ const BossBattleModal: React.FC<BossBattleModalProps> = ({ isOpen, onClose, alli
     // Ally Abilities
     const useAlly = (ally: string) => {
         if (!currentQ || turn !== 'player') return;
+        if (allyCharges[ally] <= 0) return;
+
+        // Decrement charge
+        setAllyCharges(prev => ({ ...prev, [ally]: prev[ally] - 1 }));
 
         if (ally === 'wizard') {
             // Remove 1 wrong option
@@ -170,16 +182,16 @@ const BossBattleModal: React.FC<BossBattleModalProps> = ({ isOpen, onClose, alli
             if (wrongOpts.length > 0) {
                 const toRemove = wrongOpts[Math.floor(Math.random() * wrongOpts.length)];
                 setDisabledOpts(prev => [...prev, toRemove]);
-                setLogs(prev => [`🧙‍♂️ Волшебник убрал неверный вариант!`, ...prev].slice(0, 4));
+                setLogs(prev => [`🧙‍♂️ Волшебник убрал неверный вариант! (Ост: ${allyCharges['wizard'] - 1})`, ...prev].slice(0, 4));
             }
         }
         if (ally === 'fairy') {
             setPlayerHp(prev => Math.min(maxPlayerHp, prev + 30));
-            setLogs(prev => [`🧚‍♀️ Фея восстановила 30 HP!`, ...prev].slice(0, 4));
+            setLogs(prev => [`🧚‍♀️ Фея восстановила 30 HP! (Ост: ${allyCharges['fairy'] - 1})`, ...prev].slice(0, 4));
         }
         if (ally === 'warrior') {
             setDmgMultiplier(2);
-            setLogs(prev => [`🛡️ Воин: Следующий удар нанесет двойной урон!`, ...prev].slice(0, 4));
+            setLogs(prev => [`🛡️ Воин: Следующий удар нанесет двойной урон! (Ост: ${allyCharges['warrior'] - 1})`, ...prev].slice(0, 4));
         }
     };
 
@@ -258,20 +270,41 @@ const BossBattleModal: React.FC<BossBattleModalProps> = ({ isOpen, onClose, alli
                              {/* Allies */}
                              <div className="flex justify-center gap-4 border-t border-slate-800 pt-4">
                                  {allies.includes('wizard') && (
-                                     <button onClick={() => useAlly('wizard')} className="flex flex-col items-center text-purple-400 hover:text-white">
-                                         <div className="p-2 bg-purple-900/30 rounded-lg border border-purple-500/50 mb-1"><Zap size={20}/></div>
+                                     <button 
+                                        onClick={() => useAlly('wizard')} 
+                                        disabled={allyCharges['wizard'] <= 0}
+                                        className={`flex flex-col items-center group ${allyCharges['wizard'] <= 0 ? 'opacity-30 cursor-not-allowed' : 'text-purple-400 hover:text-white'}`}
+                                     >
+                                         <div className="p-2 bg-purple-900/30 rounded-lg border border-purple-500/50 mb-1 relative">
+                                             <Zap size={20}/>
+                                             <span className="absolute -top-2 -right-2 bg-black text-xs rounded-full w-5 h-5 flex items-center justify-center border border-slate-700">{allyCharges['wizard']}</span>
+                                         </div>
                                          <span className="text-[10px] font-bold">50/50</span>
                                      </button>
                                  )}
                                  {allies.includes('fairy') && (
-                                     <button onClick={() => useAlly('fairy')} className="flex flex-col items-center text-pink-400 hover:text-white">
-                                         <div className="p-2 bg-pink-900/30 rounded-lg border border-pink-500/50 mb-1"><Heart size={20}/></div>
+                                     <button 
+                                        onClick={() => useAlly('fairy')}
+                                        disabled={allyCharges['fairy'] <= 0} 
+                                        className={`flex flex-col items-center group ${allyCharges['fairy'] <= 0 ? 'opacity-30 cursor-not-allowed' : 'text-pink-400 hover:text-white'}`}
+                                     >
+                                         <div className="p-2 bg-pink-900/30 rounded-lg border border-pink-500/50 mb-1 relative">
+                                             <Heart size={20}/>
+                                             <span className="absolute -top-2 -right-2 bg-black text-xs rounded-full w-5 h-5 flex items-center justify-center border border-slate-700">{allyCharges['fairy']}</span>
+                                         </div>
                                          <span className="text-[10px] font-bold">Heal</span>
                                      </button>
                                  )}
                                  {allies.includes('warrior') && (
-                                     <button onClick={() => useAlly('warrior')} className="flex flex-col items-center text-red-400 hover:text-white">
-                                         <div className="p-2 bg-red-900/30 rounded-lg border border-red-500/50 mb-1"><Sword size={20}/></div>
+                                     <button 
+                                        onClick={() => useAlly('warrior')} 
+                                        disabled={allyCharges['warrior'] <= 0}
+                                        className={`flex flex-col items-center group ${allyCharges['warrior'] <= 0 ? 'opacity-30 cursor-not-allowed' : 'text-red-400 hover:text-white'}`}
+                                     >
+                                         <div className="p-2 bg-red-900/30 rounded-lg border border-red-500/50 mb-1 relative">
+                                             <Sword size={20}/>
+                                             <span className="absolute -top-2 -right-2 bg-black text-xs rounded-full w-5 h-5 flex items-center justify-center border border-slate-700">{allyCharges['warrior']}</span>
+                                         </div>
                                          <span className="text-[10px] font-bold">x2 Dmg</span>
                                      </button>
                                  )}

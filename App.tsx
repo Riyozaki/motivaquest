@@ -1,3 +1,4 @@
+
 import React, { useEffect, useRef, useState } from 'react';
 import { HashRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { Provider, useSelector } from 'react-redux';
@@ -9,9 +10,11 @@ import Profile from './pages/Profile';
 import Quests from './pages/Quests';
 import Rewards from './pages/Rewards';
 import Leaderboard from './pages/Leaderboard';
+import Calendar from './pages/Calendar'; // New Import
 import Admin from './pages/Admin';
 import AdminControls from './components/AdminControls';
 import DailyRewardModal from './components/DailyRewardModal';
+import FloatingReward from './components/FloatingReward';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { ToastContainer, toast } from 'react-toastify';
@@ -83,6 +86,7 @@ const AnimatedRoutes: React.FC = () => {
                 <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
                 <Route path="/quests" element={<ProtectedRoute><Quests /></ProtectedRoute>} />
                 <Route path="/rewards" element={<ProtectedRoute><Rewards /></ProtectedRoute>} />
+                <Route path="/calendar" element={<ProtectedRoute><Calendar /></ProtectedRoute>} />
                 <Route path="/leaderboard" element={<ProtectedRoute><Leaderboard /></ProtectedRoute>} />
                 <Route path="/admin" element={<AdminRoute><Admin /></AdminRoute>} />
             </Routes>
@@ -172,6 +176,7 @@ const AppContent: React.FC = () => {
       </main>
       
       <DailyRewardModal />
+      <FloatingReward />
       <AdminControls />
 
       <footer className="py-8 text-center text-sm text-slate-500 border-t border-slate-800/50 backdrop-blur-sm">

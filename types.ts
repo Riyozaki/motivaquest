@@ -54,6 +54,8 @@ export type QuestCategory =
   | 'History' | 'Sport' | 'Social' | 'Ecology' | 'Self' 
   | 'Finance' | 'IT' | 'Art';
 
+export type HeroClass = 'warrior' | 'mage' | 'ranger' | 'healer';
+
 export interface Quest {
   id: number;
   title: string;
@@ -66,7 +68,8 @@ export interface Quest {
   completed: boolean;
   tasks: Task[];
   type: 'daily' | 'story'; 
-  gradeRange?: [number, number]; // New: [min, max]
+  isHabit?: boolean; // New: Distinguishes routine tasks from random challenges
+  gradeRange?: [number, number]; 
   minMinutes: number; 
 }
 
@@ -129,6 +132,7 @@ export interface UserProfile {
   currentXp: number;
   nextLevelXp: number;
   coins: number;
+  currentHp: number; 
   completedQuests: number;
   inventory: string[]; 
   achievements: string[]; 
@@ -138,8 +142,11 @@ export interface UserProfile {
   lastDailyMood?: string; 
   themeColor?: ThemeColor;
   
+  heroClass?: HeroClass; // New field
+
   // Mechanics
   activeQuestTimers: Record<number, number>;
+  habitStreaks?: Record<number, number>; // New: Track streak per specific quest ID
   dailyCompletionsCount: number;
   lastCompletionTime?: number;
   suspiciousFlags: number;
