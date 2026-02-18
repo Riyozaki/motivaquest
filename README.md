@@ -1,0 +1,66 @@
+# MotivaQuest 🛡️
+
+Веб-приложение для геймификации повседневных задач и обучения подростков. Превращает скучные дела в увлекательные квесты с наградами, уровнями и социальным взаимодействием.
+
+## 🚀 Функциональность
+
+- **Геймификация**: Система уровней, XP и золота.
+- **Квесты**: Ежедневные, сюжетные и групповые задания.
+- **Магазин наград**: Покупка скинов и реальных наград (пицца, игры) за виртуальную валюту.
+- **Социальное**: Таблица лидеров и групповые чаты.
+- **Админка**: Панель для учителей/родителей для отслеживания прогресса (защищено ролью).
+- **Этика**: Контроль игрового времени (сессии по 1 часу) и родительское согласие.
+
+## 🛠 Технологии
+
+- **Frontend**: React, TypeScript, Redux Toolkit.
+- **UI**: Material UI, Tailwind CSS, Lucide Icons.
+- **Backend**: Firebase (Auth, Firestore).
+- **Charts**: Chart.js.
+
+## 📦 Установка и Запуск
+
+1.  **Клонирование репозитория**
+    ```bash
+    git clone https://github.com/your-username/motivaquest.git
+    cd motivaquest
+    ```
+
+2.  **Установка зависимостей**
+    ```bash
+    npm install
+    ```
+
+3.  **Настройка Firebase**
+    *   Создайте проект на [Firebase Console](https://console.firebase.google.com/).
+    *   Включите **Authentication** (Email/Password).
+    *   Включите **Firestore Database**.
+    *   Создайте файл `.env` в корне проекта и добавьте данные вашего приложения:
+    ```env
+    REACT_APP_FIREBASE_API_KEY=your_api_key
+    REACT_APP_FIREBASE_AUTH_DOMAIN=your_project.firebaseapp.com
+    REACT_APP_FIREBASE_PROJECT_ID=your_project_id
+    REACT_APP_FIREBASE_STORAGE_BUCKET=your_project.appspot.com
+    REACT_APP_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
+    REACT_APP_FIREBASE_APP_ID=your_app_id
+    ```
+
+4.  **Запуск**
+    ```bash
+    npm start
+    ```
+    Приложение будет доступно по адресу `http://localhost:3000`.
+
+## 👨‍🏫 Вход для Администратора
+
+Чтобы протестировать админ-панель:
+1. Зарегистрируйте пользователя с email, содержащим слово `admin` (например, `admin@school.com`), или измените роль пользователя вручную в базе данных Firebase (коллекция `users`, поле `role: 'admin'`).
+2. Перейдите по ссылке `/admin` в меню навигации.
+
+## 📄 Структура Проекта
+
+*   `/components` - Переиспользуемые UI компоненты (Navbar, Modals).
+*   `/pages` - Основные страницы (Home, Quests, Profile...).
+*   `/store` - Redux слайсы для управления состоянием.
+*   `/context` - React Context (Auth, Theme).
+*   `/types` - TypeScript интерфейсы.
