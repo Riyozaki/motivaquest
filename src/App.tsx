@@ -84,17 +84,25 @@ const AnimatedRoutes: React.FC = () => {
     const location = useLocation();
     
     return (
-        <AnimatePresence>
-            <Routes location={location} key={location.pathname}>
-                <Route path="/" element={<Home />} />
-                <Route path="/login" element={<Login />} />
-                <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
-                <Route path="/quests" element={<ProtectedRoute><Quests /></ProtectedRoute>} />
-                <Route path="/rewards" element={<ProtectedRoute><Rewards /></ProtectedRoute>} />
-                <Route path="/calendar" element={<ProtectedRoute><Calendar /></ProtectedRoute>} />
-                <Route path="/leaderboard" element={<ProtectedRoute><Leaderboard /></ProtectedRoute>} />
-                <Route path="/admin" element={<AdminRoute><Admin /></AdminRoute>} />
-            </Routes>
+        <AnimatePresence mode="wait">
+            <motion.div
+                key={location.pathname}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.15 }}
+            >
+                <Routes location={location}>
+                    <Route path="/" element={<Home />} />
+                    <Route path="/login" element={<Login />} />
+                    <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+                    <Route path="/quests" element={<ProtectedRoute><Quests /></ProtectedRoute>} />
+                    <Route path="/rewards" element={<ProtectedRoute><Rewards /></ProtectedRoute>} />
+                    <Route path="/calendar" element={<ProtectedRoute><Calendar /></ProtectedRoute>} />
+                    <Route path="/leaderboard" element={<ProtectedRoute><Leaderboard /></ProtectedRoute>} />
+                    <Route path="/admin" element={<AdminRoute><Admin /></AdminRoute>} />
+                </Routes>
+            </motion.div>
         </AnimatePresence>
     );
 };

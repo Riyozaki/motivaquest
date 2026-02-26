@@ -419,7 +419,10 @@ export const completeQuestAction = createAsyncThunk(
                 newLevel: currentLevel,
                 newXp: newXpTotal,
                 newNextLevelXp: nextLevelXp,
-                newCoins: (user.coins || 0) + coinsReward
+                newCoins: (user.coins || 0) + coinsReward,
+                habitStreaks: quest.isHabit 
+                    ? { ...(user.habitStreaks || {}), [quest.id]: ((user.habitStreaks?.[quest.id]) || 0) + 1 }
+                    : undefined
             };
             await api.completeQuest(apiPayload);
             audio.playQuestComplete();

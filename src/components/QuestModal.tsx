@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Modal from 'react-modal';
 import { Quest, Task } from '../types';
-import { X, Coins, Star, Trophy, Volume2, StopCircle, Play, Clock, Zap, Loader2 } from 'lucide-react';
+import { X, Coins, Star, Trophy, Volume2, StopCircle, Play, Clock, Zap, Loader2, Lightbulb } from 'lucide-react';
 import { useDispatch, useSelector } from 'react-redux';
 import { startQuestAction, selectIsPending } from '../store/userSlice';
 import { completeQuestAction, markQuestCompleted, fetchQuests } from '../store/questsSlice';
@@ -12,7 +12,7 @@ import { RootState, AppDispatch } from '../store';
 import { useSoundEffects } from '../hooks/useSoundEffects';
 import LoadingOverlay from './LoadingOverlay';
 
-// Import new task components
+// Import task components
 import QuizTask from './tasks/QuizTask';
 import InputTask from './tasks/InputTask';
 import TimerTask from './tasks/TimerTask';
@@ -25,7 +25,7 @@ interface QuestModalProps {
   quest: Quest | null;
   isOpen: boolean;
   onClose: () => void;
-  multiplier?: number; // New prop for reward multiplier
+  multiplier?: number;
 }
 
 interface TaskResult {
@@ -33,80 +33,65 @@ interface TaskResult {
     isPartial: boolean;
 }
 
+// Max hints per quest (4 hints = 100% penalty = 0 reward)
+const MAX_HINTS = 4;
+const HINT_PENALTY = 0.25; // 25% per hint
+
 const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose, multiplier = 1 }) => {
   const dispatch = useDispatch<AppDispatch>();
   const user = useSelector((state: RootState) => state.user.currentUser);
   const isCompleting = useSelector(selectIsPending('completeQuest'));
   const { playQuestComplete } = useSoundEffects();
   
-  // Store results for each task ID
   const [taskResults, setTaskResults] = useState<{ [key: number]: TaskResult }>({});
   const [completed, setCompleted] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   
+  // === HINT SYSTEM STATE ===
+  const [hintsUsed, setHintsUsed] = useState(0);
+  const [hintedTasks, setHintedTasks] = useState<Set<number>>(new Set());
+  
   const startTime = quest && user?.activeQuestTimers ? user.activeQuestTimers[quest.id] : null;
   const isStarted = !!startTime;
-  const isAdmin = user?.role === 'admin' || user?.uid === 'demo_hero_id';
-  
-  const [timeLeft, setTimeLeft] = useState(0);
+  const isAdmin = user?.role === 'admin';
 
-  // Global cleanup for speech synthesis
-  useEffect(() => {
-      return () => {
-          window.speechSynthesis.cancel();
-      };
-  }, []);
+  // Calculate time-based lock
+  const minMs = quest ? quest.minMinutes * 60 * 1000 : 0;
+  const elapsed = startTime ? Date.now() - new Date(startTime).getTime() : 0;
+  const timeLeft = Math.max(0, minMs - elapsed);
 
-  // Restore progress or reset on open
+  // Hint reward penalty multiplier: 1 hint = 0.75, 2 = 0.50, 3 = 0.25, 4 = 0.00
+  const hintPenaltyMultiplier = Math.max(0, 1 - (hintsUsed * HINT_PENALTY));
+
   useEffect(() => {
-    if (isOpen && quest) {
-      const storageKey = `quest_progress_${quest.id}`;
-      const savedProgress = localStorage.getItem(storageKey);
-      
-      if (savedProgress) {
-          try {
-              setTaskResults(JSON.parse(savedProgress));
-          } catch (e) {
-              console.error("Failed to parse saved quest progress", e);
-              setTaskResults({});
-          }
-      } else {
-          setTaskResults({});
-      }
+    if (!isOpen) {
+      setTaskResults({});
       setCompleted(false);
-    } else {
-      window.speechSynthesis.cancel();
-      setIsSpeaking(false);
+      setHintsUsed(0);
+      setHintedTasks(new Set());
     }
-  }, [isOpen, quest]);
+  }, [isOpen]);
 
+  // Restore cached progress
   useEffect(() => {
-      if (!quest || !isStarted) {
-          setTimeLeft(0);
-          return;
+    if (quest && isOpen) {
+      const cached = localStorage.getItem(`quest_progress_${quest.id}`);
+      if (cached) {
+        try { setTaskResults(JSON.parse(cached)); } catch {}
       }
-
-      const minMs = (quest.minMinutes || 1) * 60 * 1000;
-      const targetTime = startTime + minMs;
-
-      const updateTimer = () => {
-          const now = Date.now();
-          const diff = targetTime - now;
-          if (diff <= 0) {
-              setTimeLeft(0);
-          } else {
-              setTimeLeft(diff);
-          }
-      };
-
-      updateTimer();
-      const interval = setInterval(updateTimer, 1000);
-      return () => clearInterval(interval);
-  }, [quest, isStarted, startTime]);
-
-  if (!quest) return null;
+      const cachedHints = localStorage.getItem(`quest_hints_${quest.id}`);
+      if (cachedHints) {
+        try {
+          const parsed = JSON.parse(cachedHints);
+          setHintsUsed(parsed.count || 0);
+          setHintedTasks(new Set(parsed.taskIds || []));
+        } catch {}
+      }
+    }
+  }, [quest, isOpen]);
 
   const handleSpeak = () => {
+    if (!quest) return;
     if (isSpeaking) {
       window.speechSynthesis.cancel();
       setIsSpeaking(false);
@@ -121,7 +106,7 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose, multipl
   };
 
   const handleStart = () => {
-      if (isCompleting) return;
+      if (isCompleting || !quest) return;
       dispatch(startQuestAction(quest.id));
       toast.info("Задание началось! Таймер запущен.");
   };
@@ -132,14 +117,9 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose, multipl
       return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
 
-  // Wrapped in useCallback to prevent infinite re-renders in child components (ChecklistTask)
   const handleTaskAnswer = useCallback((taskId: number, isCorrect: boolean, isPartial: boolean = false) => {
       setTaskResults(prev => {
-          const newResults = {
-              ...prev,
-              [taskId]: { isCorrect, isPartial }
-          };
-          // Cache progress to localStorage
+          const newResults = { ...prev, [taskId]: { isCorrect, isPartial } };
           if (quest) {
               localStorage.setItem(`quest_progress_${quest.id}`, JSON.stringify(newResults));
           }
@@ -147,22 +127,64 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose, multipl
       });
   }, [quest]);
 
+  // === HINT HANDLER ===
+  const handleUseHint = useCallback((taskId: number) => {
+      if (hintsUsed >= MAX_HINTS) {
+          toast.warning("Подсказки закончились!");
+          return false;
+      }
+      if (hintedTasks.has(taskId)) {
+          toast.info("Подсказка уже использована для этого задания.");
+          return false;
+      }
+      
+      const newCount = hintsUsed + 1;
+      const newHinted = new Set(hintedTasks);
+      newHinted.add(taskId);
+      
+      setHintsUsed(newCount);
+      setHintedTasks(newHinted);
+      
+      // Cache hints
+      if (quest) {
+          localStorage.setItem(`quest_hints_${quest.id}`, JSON.stringify({
+              count: newCount,
+              taskIds: Array.from(newHinted)
+          }));
+      }
+      
+      const penalty = newCount * 25;
+      toast.info(`💡 Подсказка! Награда снижена на ${penalty}%`, { icon: () => "💡" });
+      return true;
+  }, [hintsUsed, hintedTasks, quest]);
+
+  const isTaskHinted = useCallback((taskId: number) => {
+      return hintedTasks.has(taskId);
+  }, [hintedTasks]);
+
+  // === RENDER TASKS WITH HINT SUPPORT ===
   const renderTask = (task: Task) => {
+      const hintProps = {
+          onHint: handleUseHint,
+          isHinted: isTaskHinted(task.id),
+          hintsRemaining: MAX_HINTS - hintsUsed,
+      };
+
       switch (task.type) {
-        case 'quiz': return <QuizTask key={task.id} task={task} onAnswer={handleTaskAnswer} />;
+        case 'quiz': return <QuizTask key={task.id} task={task} onAnswer={handleTaskAnswer} {...hintProps} />;
         case 'text_input':
-        case 'number_input': return <InputTask key={task.id} task={task} onAnswer={handleTaskAnswer} />;
+        case 'number_input': return <InputTask key={task.id} task={task} onAnswer={handleTaskAnswer} {...hintProps} />;
         case 'timer_challenge': return <TimerTask key={task.id} task={task} onAnswer={handleTaskAnswer} />;
         case 'checklist': return <ChecklistTask key={task.id} task={task} onAnswer={handleTaskAnswer} />;
-        case 'ordering': return <OrderingTask key={task.id} task={task} onAnswer={handleTaskAnswer} />;
-        case 'matching': return <MatchingTask key={task.id} task={task} onAnswer={handleTaskAnswer} />;
+        case 'ordering': return <OrderingTask key={task.id} task={task} onAnswer={handleTaskAnswer} {...hintProps} />;
+        case 'matching': return <MatchingTask key={task.id} task={task} onAnswer={handleTaskAnswer} {...hintProps} />;
         case 'yes_no':
         default: return <YesNoTask key={task.id} task={task} onAnswer={handleTaskAnswer} />;
       }
   };
 
   const handleCompleteFlow = async () => {
-      if (isCompleting) return;
+      if (!quest || isCompleting) return;
       if (timeLeft > 0 && !isAdmin) {
           toast.warning(`Не так быстро! Подожди ещё ${formatTime(timeLeft)}.`);
           return;
@@ -193,23 +215,25 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose, multipl
           return;
       }
 
-      finalMultiplier = finalMultiplier * multiplier;
+      // Apply hint penalty and boost multiplier
+      finalMultiplier = finalMultiplier * multiplier * hintPenaltyMultiplier;
 
       try {
-          // Blocking starts here via Redux pending state
           await dispatch(completeQuestAction({ quest, multiplier: finalMultiplier })).unwrap();
           
-          // Clear cached progress on success
+          // Clear cached progress & hints on success
           localStorage.removeItem(`quest_progress_${quest.id}`);
+          localStorage.removeItem(`quest_hints_${quest.id}`);
 
           playQuestComplete(); 
           setCompleted(true);
           dispatch(markQuestCompleted(quest.id));
           dispatch(fetchQuests());
-          
-          // Check for unlocked achievements
           dispatch(checkAchievements());
           
+          if (hintsUsed > 0) {
+              toast.info(`Использовано подсказок: ${hintsUsed} (−${hintsUsed * 25}% награды)`);
+          }
           if (finalMultiplier >= 1.0) {
               toast.success(`Успех! Бонус: x${multiplier}`);
           }
@@ -219,13 +243,21 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose, multipl
       }
   };
 
+  if (!quest) return null;
+
+  // Calculate displayed rewards with hint penalty
+  const displayedCoins = Math.floor(quest.coins * multiplier * hintPenaltyMultiplier);
+  const displayedXp = Math.floor(quest.xp * multiplier * hintPenaltyMultiplier);
+
   return (
     <Modal
       isOpen={isOpen}
       onRequestClose={!isCompleting ? onClose : undefined}
       contentLabel={quest.title}
       role="dialog"
-      ariaHideApp={true}
+      ariaHideApp={false}
+      shouldCloseOnOverlayClick={!isCompleting}
+      shouldCloseOnEsc={!isCompleting}
       className="outline-none focus:outline-none"
       style={{
         overlay: {
@@ -280,51 +312,51 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose, multipl
                      </span>
                  )}
                  {isStarted && timeLeft > 0 && (
-                     <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest flex items-center ${isAdmin ? 'bg-red-900/40 text-red-400 border border-red-500/30' : 'bg-amber-900/40 text-amber-400 border border-amber-500/30 animate-pulse'}`}>
-                         <Clock size={10} className="mr-1"/> {isAdmin ? 'Timer Bypass' : formatTime(timeLeft)}
+                     <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest flex items-center ${isAdmin ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'}`}>
+                         <Clock size={10} className="mr-1" /> {formatTime(timeLeft)}
                      </span>
                  )}
              </div>
-
-             <h2 className="text-xl md:text-3xl font-bold text-white rpg-font mb-2 text-shadow-lg leading-tight">{quest.title}</h2>
-             <div className="flex items-start md:items-center text-slate-400 text-sm italic">
-                 <button 
-                    onClick={handleSpeak} 
-                    aria-label={isSpeaking ? "Остановить чтение" : "Прочитать задание"}
-                    className="mr-2 mt-0.5 md:mt-0 hover:text-white transition-colors shrink-0 focus:ring-2 focus:ring-purple-500 outline-none rounded-full p-1"
-                 >
-                    {isSpeaking ? <StopCircle size={16} /> : <Volume2 size={16} />}
-                 </button>
-                 <span className="line-clamp-2 md:line-clamp-none">{quest.description}</span>
-             </div>
+             
+             <h2 className="text-xl md:text-2xl font-bold text-white rpg-font">{quest.title}</h2>
+             <p className="text-slate-400 text-sm mt-1">{quest.description}</p>
+             
+             {/* TTS */}
+             <button 
+                onClick={handleSpeak}
+                className="mt-2 text-slate-500 hover:text-white transition-colors"
+                aria-label={isSpeaking ? "Остановить" : "Озвучить"}
+             >
+                {isSpeaking ? <StopCircle size={18} /> : <Volume2 size={18} />}
+             </button>
         </div>
 
-        {/* Content */}
-        <div className="p-4 md:p-8 overflow-y-auto bg-slate-900/50 backdrop-blur-sm flex-1 scrollbar-thin scrollbar-thumb-purple-600 scrollbar-track-slate-800">
+        {/* Content Area */}
+        <div className="overflow-y-auto flex-1 p-4 md:p-6">
             <AnimatePresence mode="wait">
-            {completed || quest.completed ? (
-              <motion.div 
-                initial={{ opacity: 0, scale: 0.8 }} 
-                animate={{ opacity: 1, scale: 1 }} 
-                className="text-center py-6 md:py-10"
-                aria-live="polite"
-              >
-                  <div className="inline-block p-4 md:p-6 rounded-full bg-amber-500/20 text-amber-500 mb-6 border border-amber-500/50 shadow-[0_0_30px_rgba(245,158,11,0.3)]">
-                      <Trophy size={48} className="md:w-16 md:h-16" />
-                  </div>
-                  <h3 className="text-2xl md:text-3xl font-bold text-white rpg-font mb-2">Победа!</h3>
-                  <p className="text-slate-400 mb-8">Ты стал мудрее. Награда получена!</p>
+            {completed ? (
+              <motion.div key="completed" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} className="text-center py-10">
+                  <Trophy className="mx-auto mb-4 text-amber-400" size={60} />
+                  <h3 className="text-2xl font-bold text-white rpg-font mb-2">Квест Выполнен!</h3>
+                  <p className="text-slate-400 mb-6">Награда получена!</p>
                   
-                  <div className="flex justify-center gap-4 md:gap-6 mb-8">
+                  <div className="flex justify-center gap-4 md:gap-6 mb-4">
                       <div className="bg-slate-800/80 px-4 md:px-6 py-3 rounded-xl border border-amber-500/30 flex items-center shadow-lg">
                           <Coins className="text-amber-400 mr-2 h-5 w-5 md:h-6 md:w-6" />
-                          <span className="font-bold text-lg md:text-xl text-white">+{Math.floor(quest.coins * multiplier)}</span>
+                          <span className="font-bold text-lg md:text-xl text-white">+{displayedCoins}</span>
                       </div>
                       <div className="bg-slate-800/80 px-4 md:px-6 py-3 rounded-xl border border-purple-500/30 flex items-center shadow-lg">
                           <Star className="text-purple-400 mr-2 h-5 w-5 md:h-6 md:w-6" />
-                          <span className="font-bold text-lg md:text-xl text-white">+{Math.floor(quest.xp * multiplier)}</span>
+                          <span className="font-bold text-lg md:text-xl text-white">+{displayedXp}</span>
                       </div>
                   </div>
+
+                  {hintsUsed > 0 && (
+                      <p className="text-amber-400/70 text-sm mb-6">
+                          💡 Подсказок использовано: {hintsUsed} (−{hintsUsed * 25}% награды)
+                      </p>
+                  )}
+
                   <button 
                     disabled={isCompleting} 
                     onClick={onClose} 
@@ -351,9 +383,26 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose, multipl
                          </button>
                      </div>
                  ) : (
+                     <>
+                     {/* Hint Penalty Indicator */}
+                     {hintsUsed > 0 && (
+                         <div className="bg-amber-900/20 border border-amber-500/30 rounded-xl p-3 flex items-center justify-between">
+                             <div className="flex items-center gap-2 text-amber-400 text-sm">
+                                 <Lightbulb size={16} />
+                                 <span>Подсказок: {hintsUsed}/{MAX_HINTS}</span>
+                             </div>
+                             <div className="text-sm">
+                                 <span className="text-slate-400">Награда: </span>
+                                 <span className={`font-bold ${hintPenaltyMultiplier < 0.5 ? 'text-red-400' : hintPenaltyMultiplier < 1 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                                     {Math.round(hintPenaltyMultiplier * 100)}%
+                                 </span>
+                             </div>
+                         </div>
+                     )}
                      <div className="space-y-6 pointer-events-auto">
                         {quest.tasks.map(task => renderTask(task))}
                      </div>
+                     </>
                  )}
               </div>
             )}
@@ -361,11 +410,16 @@ const QuestModal: React.FC<QuestModalProps> = ({ quest, isOpen, onClose, multipl
         </div>
 
         {/* Footer */}
-        {!(completed || quest.completed) && isStarted && (
+        {!completed && isStarted && (
             <div className="p-4 md:p-6 bg-slate-900 border-t border-slate-800 flex flex-col md:flex-row justify-between items-center gap-4 shrink-0">
                 <div className="flex gap-4 text-sm font-bold w-full md:w-auto justify-center md:justify-start">
-                    <span className="flex items-center text-amber-400"><Coins className="h-4 w-4 mr-1" /> {Math.floor(quest.coins * multiplier)}</span>
-                    <span className="flex items-center text-purple-400"><Star className="h-4 w-4 mr-1" /> {Math.floor(quest.xp * multiplier)}</span>
+                    <span className={`flex items-center ${hintsUsed > 0 ? 'text-amber-400/70' : 'text-amber-400'}`}>
+                        <Coins className="h-4 w-4 mr-1" /> {displayedCoins}
+                        {hintsUsed > 0 && <span className="text-red-400 text-xs ml-1">(-{hintsUsed * 25}%)</span>}
+                    </span>
+                    <span className={`flex items-center ${hintsUsed > 0 ? 'text-purple-400/70' : 'text-purple-400'}`}>
+                        <Star className="h-4 w-4 mr-1" /> {displayedXp}
+                    </span>
                 </div>
                 <button 
                    onClick={handleCompleteFlow} 

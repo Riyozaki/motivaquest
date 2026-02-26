@@ -185,6 +185,7 @@ const mapSheetToUser = (rawData: any): UserProfile => {
         achievements: Array.isArray(info.achievements) ? info.achievements.map((a: any) => a.id) : [],
         questHistory: mappedHistory,
         habitStreaks: info.habitStreaks || {}, // Important: Map streaks from DB
+        surveyHistory: Array.isArray(info.surveyHistory) ? info.surveyHistory : [],
         campaign: campaignData,
         lastCampaignAdvanceDate: info.lastCampaignAdvanceDate,
         
@@ -321,6 +322,10 @@ export const loginLocal = createAsyncThunk(
   async (payload: { email: string; password: string }, { dispatch }) => {
     const response = await api.login(payload.email, payload.password);
     const normalizedUser = mapSheetToUser(response);
+    // v3: роль приходит от сервера
+    if (response.user?.role) {
+        normalizedUser.role = response.user.role;
+    }
     
     localStorage.setItem(STORAGE_KEY_EMAIL, normalizedUser.email);
     
@@ -358,6 +363,7 @@ export const registerLocal = createAsyncThunk(
 
 export const logoutLocal = createAsyncThunk('user/logout', async () => {
     localStorage.removeItem(STORAGE_KEY_EMAIL);
+    api.logout(); // v3: очищаем токен сессии
     return null;
 });
 

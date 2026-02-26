@@ -199,3 +199,15 @@ export interface AdminAnalyticsData {
   completedQuests: number;
   avgMotivation: number;
 }
+
+export interface ShopItem {
+  id: string;
+  name: string;
+  description: string;
+  cost: number;
+  type: 'skin' | 'consumable';
+  value: string;
+  icon: string;
+  category?: 'skin' | 'real' | 'boost';          // НОВОЕ
+  rarity?: 'Common' | 'Rare' | 'Epic' | 'Legendary';  // НОВОЕ
+}

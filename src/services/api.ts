@@ -2,17 +2,37 @@ import { UserProfile } from '../types';
 import { store } from '../store';
 import { setPendingSyncCount } from '../store/userSlice';
 
-// Updated Deployment ID v2.0
+// ═══════════════════════════════════════════════════════════
+// ВАЖНО: После деплоя нового скрипта v3 — вставь сюда новый URL
+// Deploy → New deployment → скопировать URL
+// ═══════════════════════════════════════════════════════════
 const API_URL = 'https://script.google.com/macros/s/AKfycbyibXkrpjTcaGb23jx_WosICwTx3jL8RYGYayNh3ypi6Vaz2nRUaKVTuhb1oEAFELgTJw/exec';
 
-const TIMEOUT_MS = 25000; // Increased timeout
+const TIMEOUT_MS = 25000;
 const OFFLINE_QUEUE_KEY = 'motiva_offline_queue';
 const MAX_QUEUE_SIZE = 50;
 
+// ── v3: Токен сессии ──
+const TOKEN_KEY = 'motiva_session_token';
+
+function getToken(): string | null {
+    return localStorage.getItem(TOKEN_KEY);
+}
+
+function setToken(token: string) {
+    localStorage.setItem(TOKEN_KEY, token);
+}
+
+function clearToken() {
+    localStorage.removeItem(TOKEN_KEY);
+}
+
+// ── Приоритеты для offline queue ──
+
 enum Priority {
-    HIGH = 0,   // Login, Critical Updates
-    MEDIUM = 1, // Quests, Purchases
-    LOW = 2     // Analytics
+    HIGH = 0,
+    MEDIUM = 1,
+    LOW = 2
 }
 
 interface OfflineRequest {
@@ -22,7 +42,7 @@ interface OfflineRequest {
     timestamp: number;
     priority: Priority;
     retryCount: number;
-    hash: string; // For deduplication
+    hash: string;
 }
 
 // --- Payload Interfaces ---
@@ -51,6 +71,7 @@ export interface CompleteQuestPayload {
     newXp: number;
     newNextLevelXp: number;
     newCoins: number;
+    habitStreaks?: Record<number, number>; // v3: передаём стрики привычек
 }
 
 export interface BossBattlePayload {
@@ -76,6 +97,14 @@ export interface UpdateProfilePayload {
     tutorialCompleted?: boolean;
 }
 
+// v3: Результат с кодом ошибки
+interface ApiResult {
+    success: boolean;
+    error?: string;
+    errorCode?: string;
+    [key: string]: any;
+}
+
 // Helper: Sleep function
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -88,7 +117,7 @@ const calculateHash = (action: string, data: any): string => {
 const getPriority = (action: string): Priority => {
     if (['login', 'register', 'dailyLogin', 'getAllUserData'].includes(action)) return Priority.HIGH;
     if (['analyticsBatch', 'saveWeeklyStats'].includes(action)) return Priority.LOW;
-    return Priority.MEDIUM; // Quests, Purchases, Updates
+    return Priority.MEDIUM;
 };
 
 const saveToQueue = (action: string, data: any) => {
@@ -98,49 +127,34 @@ const saveToQueue = (action: string, data: any) => {
         
         const newHash = calculateHash(action, data);
         
-        // 1. Deduplication: Check if an identical request is already pending
-        // If it is, we might update it or just ignore the new one. 
-        // For state updates (like profile), replacing the old one is better.
-        // For events (quests), we probably want to keep unique ones, but if it's EXACTLY duplicate payload, it's likely a retry or double click.
-        const existingIdx = queue.findIndex(req => req.hash === newHash);
-        
-        if (existingIdx !== -1) {
-            // Move to end (renew timestamp) but keep retry count? Or reset?
-            // Let's just update timestamp and move to appropriate position later during sort.
+        // Deduplication: replace if same action+email exists
+        const existingIdx = queue.findIndex(r => r.hash === newHash);
+        if (existingIdx >= 0) {
             queue[existingIdx].timestamp = Date.now();
-            console.log(`[Offline] Deduplicated request: ${action}`);
+            queue[existingIdx].data = data;
         } else {
-            const req: OfflineRequest = {
-                id: Date.now().toString() + Math.random().toString(),
+            queue.push({
+                id: Date.now().toString() + Math.random().toString(36).slice(2),
                 action,
                 data,
                 timestamp: Date.now(),
                 priority: getPriority(action),
                 retryCount: 0,
                 hash: newHash
-            };
-            queue.push(req);
+            });
         }
 
-        // 2. Max Capacity & FIFO Eviction (respecting priority)
+        // Enforce max size
         if (queue.length > MAX_QUEUE_SIZE) {
-            // Sort by Priority (Desc: Low -> High) then Timestamp (Asc: Old -> New)
-            // We want to remove the Lowest priority, Oldest item.
-            // Priority: High=0, Low=2. So sort Desc makes Low=2 come first.
             queue.sort((a, b) => {
-                if (a.priority !== b.priority) return b.priority - a.priority; // 2 (Low) before 0 (High)
-                return a.timestamp - b.timestamp; // Oldest first
+                if (a.priority !== b.priority) return b.priority - a.priority;
+                return a.timestamp - b.timestamp;
             });
-            
-            // Remove the first element (Lowest priority, Oldest)
             queue.shift();
         }
 
         localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
-        
-        // Update Redux
         store.dispatch(setPendingSyncCount(queue.length));
-        
         console.log(`[Offline] Queue size: ${queue.length}. Added: ${action}`);
     } catch (e) {
         console.error("Failed to save offline request", e);
@@ -161,9 +175,8 @@ export const flushOfflineQueue = async () => {
         console.log(`[Offline] Flushing ${queue.length} requests...`);
         store.dispatch(setPendingSyncCount(queue.length));
         
-        // Sort for processing: Priority (High->Low), then Timestamp (Old->New)
         queue.sort((a, b) => {
-            if (a.priority !== b.priority) return a.priority - b.priority; // 0 before 2
+            if (a.priority !== b.priority) return a.priority - b.priority;
             return a.timestamp - b.timestamp;
         });
 
@@ -176,31 +189,23 @@ export const flushOfflineQueue = async () => {
                 continue;
             }
 
-            // Exponential Backoff for retries
             if (req.retryCount > 0) {
-                // Delay = 1s * 2^retryCount. Max 30s.
                 const backoff = Math.min(1000 * Math.pow(2, req.retryCount), 30000);
                 await sleep(backoff);
             }
 
             try {
                 await request(req.action, req.data, 'POST', 0, true); 
-                // Success - do nothing (it's removed from newQueue)
             } catch (e: any) {
-                const isNetworkError = e.message === 'OFFLINE_SAVED' || e.name === 'AbortError' || e.message.includes('Failed to fetch');
+                const isNetworkError = e.message === 'OFFLINE_SAVED' || e.name === 'AbortError' || e.message.includes('Failed to fetch') || e.message.includes('NetworkError');
                 
                 if (isNetworkError) {
                     console.warn(`[Offline] Network failed for ${req.action}. Stopping flush.`);
-                    isOnline = false; // Stop trying others
+                    isOnline = false;
                     req.retryCount++;
                     newQueue.push(req);
                 } else {
-                    // Logic error (e.g., 400, 500 from script logic that isn't network). 
-                    // Usually we might want to drop it to not block queue, or keep it.
-                    // For now, let's drop it if it's a persistent error, or keep if unknown.
-                    // Let's increment retry but keep going.
                     console.error(`[Offline] Logic error for ${req.action}:`, e);
-                    // If retry count is high, maybe drop?
                     if (req.retryCount > 5) {
                         console.warn(`[Offline] Dropping ${req.action} after 5 retries.`);
                     } else {
@@ -236,6 +241,9 @@ const request = async <T = any>(action: string, data: any = {}, method: 'POST' |
             data.email = data.email.trim().toLowerCase();
         }
 
+        // v3: Добавляем токен к запросам
+        const token = getToken();
+
         const options: RequestInit = {
             method,
             headers: {
@@ -246,8 +254,12 @@ const request = async <T = any>(action: string, data: any = {}, method: 'POST' |
 
         if (method === 'GET') {
             const params = new URLSearchParams({ action, ...data });
+            // v3: добавляем token к GET-запросам (для admin endpoints)
+            if (token) params.set('token', token);
             url = `${API_URL}?${params.toString()}`;
         } else {
+            // v3: добавляем token в тело POST
+            if (token) data.token = token;
             options.body = JSON.stringify({ action, ...data });
         }
 
@@ -258,9 +270,16 @@ const request = async <T = any>(action: string, data: any = {}, method: 'POST' |
             throw new Error(`API Error: ${response.statusText}`);
         }
 
-        const result = await response.json();
+        const result: ApiResult = await response.json();
         
         if (result.error) {
+            // v3: Более информативная обработка ошибок
+            if (result.errorCode === 'AUTH_FAILED') {
+                throw new Error(result.error);
+            }
+            if (result.errorCode === 'INSUFFICIENT_FUNDS') {
+                throw new Error('Недостаточно монет!');
+            }
             // Retry logic for "User not found" which might be a latency issue on sheets
             if (result.error.includes('User not found') && retryCount < 3) {
                 console.warn(`[${action}] User not found, retrying in 2s... (Attempt ${retryCount + 1})`);
@@ -272,7 +291,6 @@ const request = async <T = any>(action: string, data: any = {}, method: 'POST' |
 
         // On Success: Try to flush pending offline requests in background
         if (!skipQueue) {
-            // Fire and forget flush
             flushOfflineQueue(); 
         }
 
@@ -282,7 +300,6 @@ const request = async <T = any>(action: string, data: any = {}, method: 'POST' |
         
         const isNetworkError = error.name === 'AbortError' || error.message.includes('Failed to fetch') || error.message.includes('NetworkError');
         
-        // Only save to queue if it's a POST (state change) and we aren't already processing the queue
         if (isNetworkError && !skipQueue && method === 'POST') {
              saveToQueue(action, data);
              throw new Error("OFFLINE_SAVED");
@@ -297,19 +314,28 @@ const request = async <T = any>(action: string, data: any = {}, method: 'POST' |
 };
 
 export const api = {
-    // 1. Registration
+    // ── 1. Регистрация ──
     register: async (email: string, password: string, username: string, grade: number, className?: string, classEmoji?: string) => {
-        const res = await request<{success: true, message: string}>('register', { email, password, username, grade, className, classEmoji });
+        const res = await request<{success: true, message: string, token: string}>('register', { 
+            email, password, username, grade, className, classEmoji 
+        });
+        // v3: Сохраняем токен сессии
+        if (res.token) setToken(res.token);
         await sleep(2000); // Wait for sheet consistency
         return res;
     },
 
-    // 2. Login
+    // ── 2. Вход ──
     login: async (email: string, password?: string) => {
-        return await request<{success: true, user: any, progress: any, info: any}>('login', { email, password });
+        const res = await request<{success: true, token: string, user: any, progress: any, info: any}>('login', { 
+            email, password 
+        });
+        // v3: Сохраняем токен сессии
+        if (res.token) setToken(res.token);
+        return res;
     },
 
-    // 3. Daily Login (New v2.0)
+    // ── 3. Ежедневный логин ──
     dailyLogin: async (email: string) => {
         return await request<{
             success: true, 
@@ -320,49 +346,69 @@ export const api = {
         }>('dailyLogin', { email });
     },
 
-    // 4. Complete Quest (New v2.0 Extended)
+    // ── 4. Завершение квеста (v3: + habitStreaks) ──
     completeQuest: async (payload: CompleteQuestPayload) => {
         return await request<{success: true}>('completeQuest', payload);
     },
 
-    // 5. Boss Battle
+    // ── 5. Босс-битва ──
     completeBossBattle: async (payload: BossBattlePayload) => {
         return await request<{success: true}>('completeBossBattle', payload);
     },
 
-    // 6. Campaign Progress
+    // ── 6. Кампания ──
     updateCampaign: async (email: string, campaignId: string, currentDay: number, completedDays: number[]) => {
         return await request<{success: true}>('updateCampaign', { email, campaignId, currentDay, completedDays });
     },
 
-    // 7. Daily Challenges
+    // ── 7. Ежедневные челленджи ──
     saveDailyChallenge: async (email: string, cycleIndex: number, questIds: number[], completedQuestIds: number[]) => {
         return await request<{success: true}>('saveDailyChallenge', { email, cycleIndex, questIds, completedQuestIds });
     },
 
-    // 8. Leaderboard
+    // ── 8. Лидерборд ──
     getLeaderboard: async (type: 'weekly' | 'alltime' = 'alltime') => {
         return await request<{success: true, data: any[]}>('getLeaderboard', { type }, 'GET');
     },
 
-    // 9. Update Profile (Universal)
+    // ── 9. Обновление профиля ──
     updateProfile: async (payload: UpdateProfilePayload) => {
         return await request<{success: true}>('updateProfile', payload);
     },
 
-    // 10. Weekly Stats
+    // ── 10. Недельная статистика ──
     saveWeeklyStats: async (email: string, stats: { weekStart: string, questsCompleted: number, coinsEarned: number, xpEarned: number, bestCategory: string }) => {
         return await request<{success: true}>('saveWeeklyStats', { email, ...stats });
     },
 
-    // 11. Purchases
+    // ── 11. Покупка (v3: возвращает newBalance) ──
     addPurchase: async (email: string, item: { id: string; name: string; cost: number }) => {
-        return await request<{success: true}>('addPurchase', { 
+        return await request<{success: true, newBalance?: number}>('addPurchase', { 
             email, 
             itemId: item.id, 
             itemName: item.name, 
             price: item.cost 
         });
+    },
+
+    // ── 12. Опрос/Настроение (v3: новый endpoint) ──
+    saveSurvey: async (email: string, survey: { motivationScore: number; stressScore: number; enjoymentScore: number }) => {
+        return await request<{success: true}>('saveSurvey', { email, survey });
+    },
+
+    // ── 13. Смена пароля (v3: новый endpoint) ──
+    changePassword: async (email: string, oldPassword: string, newPassword: string) => {
+        return await request<{success: true}>('changePassword', { email, oldPassword, newPassword });
+    },
+
+    // ── 14. HP регенерация (v3: новый endpoint) ──
+    regenHp: async (email: string, amount: number) => {
+        return await request<{success: true, currentHp: number, maxHp: number}>('regenHp', { email, amount });
+    },
+
+    // ── 15. Админ-данные (v3: новый endpoint) ──
+    getAdminData: async () => {
+        return await request<{success: true, data: any[]}>('getAdminData', {}, 'GET');
     },
 
     // --- Legacy / Helpers ---
@@ -372,7 +418,6 @@ export const api = {
     },
 
     updateProgress: async (email: string, progress: Partial<UserProfile>) => {
-        // Fallback to updateProfile/updateProgress specific logic
         return await request('updateProgress', { email, progress });
     },
 
@@ -404,6 +449,11 @@ export const api = {
 
     getQuests: async (email: string) => {
         return await request<{success: true, data: any[]}>('getQuests', { email }, 'GET');
+    },
+
+    // v3: Выход — очищаем токен
+    logout: () => {
+        clearToken();
     },
 
     // Expose flush for manual triggering
